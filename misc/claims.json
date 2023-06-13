@@ -1,0 +1,25 @@
+{
+  "ear.raw-evidence": "3q2-7w",
+  "iat": 1666091373,
+  "ear.verifier-id": {
+    "build": "rrtrap-v1.0.0",
+    "developer": "Acme Inc."
+  },
+  "eat_profile": "tag:github.com,2023:veraison/ear",
+  "submods": {
+    "test": {
+      "ear.status": "affirming",
+      "ear.trustworthiness-vector": {
+        "instance-identity": 2,
+        "configuration": 2,
+        "executables": 3,
+        "file-system": 2,
+        "hardware": 2,
+        "runtime-opaque": 2,
+        "storage-opaque": 2,
+        "sourced-data": 2
+      },
+      "ear.appraisal-policy-id": "policy://psa/60a0068d"
+    }
+  }
+}
