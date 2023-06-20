@@ -441,7 +441,7 @@ impl TrustClaim {
         if (-1..=1).contains(&val) {
             TrustTier::None
         } else if (-32..32).contains(&val) {
-            TrustTier::Affirmed
+            TrustTier::Affirming
         } else if (-96..96).contains(&val) {
             TrustTier::Warning
         } else {
@@ -573,10 +573,10 @@ mod test {
         assert_eq!(claim.tier(), TrustTier::None);
 
         claim.set(2i8);
-        assert_eq!(claim.tier(), TrustTier::Affirmed);
+        assert_eq!(claim.tier(), TrustTier::Affirming);
 
         claim.set(31i8);
-        assert_eq!(claim.tier(), TrustTier::Affirmed);
+        assert_eq!(claim.tier(), TrustTier::Affirming);
 
         claim.set(32i8);
         assert_eq!(claim.tier(), TrustTier::Warning);
@@ -591,10 +591,10 @@ mod test {
         assert_eq!(claim.tier(), TrustTier::None);
 
         claim.set(-2i8);
-        assert_eq!(claim.tier(), TrustTier::Affirmed);
+        assert_eq!(claim.tier(), TrustTier::Affirming);
 
         claim.set(-32i8);
-        assert_eq!(claim.tier(), TrustTier::Affirmed);
+        assert_eq!(claim.tier(), TrustTier::Affirming);
 
         claim.set(-33i8);
         assert_eq!(claim.tier(), TrustTier::Warning);
