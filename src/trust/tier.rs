@@ -14,7 +14,7 @@ use std::fmt;
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum TrustTier {
     None,
-    Affirmed,
+    Affirming,
     Warning,
     Contraindicated,
 }
@@ -27,14 +27,14 @@ impl Serialize for TrustTier {
         if serializer.is_human_readable() {
             match self {
                 TrustTier::None => serializer.serialize_str("none"),
-                TrustTier::Affirmed => serializer.serialize_str("affirmed"),
+                TrustTier::Affirming => serializer.serialize_str("affirming"),
                 TrustTier::Warning => serializer.serialize_str("warning"),
                 TrustTier::Contraindicated => serializer.serialize_str("contraindicated"),
             }
         } else {
             match self {
                 TrustTier::None => serializer.serialize_i8(0),
-                TrustTier::Affirmed => serializer.serialize_i8(2),
+                TrustTier::Affirming => serializer.serialize_i8(2),
                 TrustTier::Warning => serializer.serialize_i8(32),
                 TrustTier::Contraindicated => serializer.serialize_i8(96),
             }
@@ -66,7 +66,7 @@ impl<'de> Visitor<'de> for TrustTierVisitor {
     {
         match value {
             0 => Ok(TrustTier::None),
-            2 => Ok(TrustTier::Affirmed),
+            2 => Ok(TrustTier::Affirming),
             32 => Ok(TrustTier::Warning),
             96 => Ok(TrustTier::Contraindicated),
             _ => Err(E::custom(format!("Unexpected TrustTier value: {value}"))),
@@ -119,7 +119,7 @@ impl<'de> Visitor<'de> for TrustTierVisitor {
     {
         match value {
             "none" => Ok(TrustTier::None),
-            "affirmed" => Ok(TrustTier::Affirmed),
+            "affirming" => Ok(TrustTier::Affirming),
             "warning" => Ok(TrustTier::Warning),
             "contraindicated" => Ok(TrustTier::Contraindicated),
             _ => Err(E::custom(format!("Unexpected TrustTier value: {value}"))),
@@ -136,10 +136,10 @@ mod test {
 
     #[test]
     fn serde() {
-        let tier = TrustTier::Affirmed;
+        let tier = TrustTier::Affirming;
 
         let val = serde_json::to_string(&tier).unwrap();
-        assert_eq!(val, "\"affirmed\"");
+        assert_eq!(val, "\"affirming\"");
 
         let tier2: TrustTier = serde_json::from_str(val.as_str()).unwrap();
         assert_eq!(tier, tier2);
