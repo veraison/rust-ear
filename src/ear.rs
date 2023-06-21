@@ -33,13 +33,13 @@ enum KeyFormat {
 pub struct Ear {
     /// The EAT profile of the associated claim-set
     ///
-    /// See https://datatracker.ietf.org/doc/html/draft-ietf-rats-eat-19#name-eat_profile-eat-profile-cla
+    /// See <https://datatracker.ietf.org/doc/html/draft-ietf-rats-eat-19#name-eat_profile-eat-profile-cla>
     pub profile: String,
     /// "Issued At" -- the time at which the EAR is issued
     ///
     /// See:
-    /// - https://datatracker.ietf.org/doc/html/draft-ietf-rats-eat-19#section-4.3.1
-    /// - https://www.rfc-editor.org/rfc/rfc7519#section-4.1.6
+    /// - <https://datatracker.ietf.org/doc/html/draft-ietf-rats-eat-19#section-4.3.1>
+    /// - <https://www.rfc-editor.org/rfc/rfc7519#section-4.1.6>
     pub iat: i64,
     /// Identifier of the verifier that created the EAR
     pub vid: VerifierID,

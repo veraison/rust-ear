@@ -99,6 +99,7 @@ pub use self::trust::claim::TrustClaim;
 pub use self::trust::tier::TrustTier;
 pub use self::trust::vector::TrustVector;
 
+/// trustworthiness claims
 pub mod claim {
     pub use super::trust::claim::CRYPTO_VALIDATION_FAILED;
     pub use super::trust::claim::NO_CLAIM;

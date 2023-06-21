@@ -9,9 +9,12 @@ use serde::{
 
 use crate::error::Error;
 
+/// identifies the verifier that produced the EAR
 #[derive(Debug, PartialEq)]
 pub struct VerifierID {
+    /// uniquely identifies the software build running the verifier
     pub build: String,
+    /// uniquely identifies the organizational unit responsible for this build
     pub developer: String,
 }
 

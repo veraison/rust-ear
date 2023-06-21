@@ -9,6 +9,7 @@ use serde::{
     ser::{Serialize, SerializeMap},
 };
 
+/// public key that is being attested
 #[derive(Debug, PartialEq)]
 pub struct KeyAttestation {
     pub pub_key: Bytes,

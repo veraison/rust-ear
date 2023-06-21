@@ -11,6 +11,7 @@ use serde::ser::{SerializeMap as _, SerializeSeq as _, SerializeTupleVariant as 
 
 use crate::base64::Bytes;
 
+/// deserialized raw JSON object or CBOR map
 #[derive(Debug, PartialEq)]
 pub enum RawValue {
     Integer(i64),

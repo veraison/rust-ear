@@ -15,6 +15,7 @@ pub fn decode_str(v: &str) -> Result<Vec<u8>, Error> {
         .map_err(|e| Error::ParseError(e.to_string()))
 }
 
+/// a `Vec<u8>` encoded as base64 in human readable serialization
 #[derive(Debug, PartialEq)]
 pub struct Bytes(Vec<u8>);
 

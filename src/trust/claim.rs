@@ -333,7 +333,7 @@ pub static SOURCED_DATA_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_ma
 ///
 /// This is a claim regarding the trustworthiness of one aspect of the attested environment, as
 /// defined in
-/// https://datatracker.ietf.org/doc/html/draft-ietf-rats-ar4si-04#name-trustworthiness-claims
+/// <https://datatracker.ietf.org/doc/html/draft-ietf-rats-ar4si-04#name-trustworthiness-claims>
 #[derive(Debug, Clone, Copy)]
 pub struct TrustClaim {
     /// Claim value

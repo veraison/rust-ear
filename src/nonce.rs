@@ -137,6 +137,7 @@ impl<'de> Visitor<'de> for OneNonceVisitor {
     }
 }
 
+/// echoed back by the verifier to provide freshness
 #[derive(Debug, PartialEq)]
 pub struct Nonce(Vec<OneNonce>);
 
