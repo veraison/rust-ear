@@ -18,6 +18,7 @@ use crate::error::Error;
 use crate::id::VerifierID;
 use crate::nonce::Nonce;
 use crate::trust::tier::TrustTier;
+use cose::message::CoseMessage;
 
 #[allow(clippy::upper_case_acronyms)]
 enum KeyFormat {
@@ -151,7 +152,7 @@ impl Ear {
     }
 
     fn from_cose(token: &[u8], key: &cose::keys::CoseKey) -> Result<Self, Error> {
-        let mut sign1 = cose::sign::CoseSign::new();
+        let mut sign1 = CoseMessage::new_sign();
 
         sign1.bytes = token.to_vec();
         sign1.init_decoder(None).unwrap();
@@ -290,7 +291,7 @@ impl Ear {
         ciborium::ser::into_writer(self, &mut payload)
             .map_err(|e| Error::SignError(e.to_string()))?;
 
-        let mut sign1 = cose::sign::CoseSign::new();
+        let mut sign1 = CoseMessage::new_sign();
         sign1.payload(payload);
         sign1.header.alg(alg, true, false);
 
@@ -307,7 +308,7 @@ impl Ear {
             .map_err(|e| Error::SignError(format!("{e:?}")))?;
 
         sign1
-            .gen_signature(None)
+            .secure_content(None)
             .map_err(|e| Error::SignError(format!("{e:?}")))?;
         sign1
             .encode(true)
