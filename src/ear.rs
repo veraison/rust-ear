@@ -87,7 +87,11 @@ impl Ear {
         Self::from_jwt(token, jwt_alg, &dk)
     }
 
-    fn from_jwt(token: &str, alg: jwt::Algorithm, key: &jwt::DecodingKey) -> Result<Self, Error> {
+    pub fn from_jwt(
+        token: &str,
+        alg: jwt::Algorithm,
+        key: &jwt::DecodingKey,
+    ) -> Result<Self, Error> {
         let mut validation = jwt::Validation::new(alg);
         // the default validation sets "exp" as a mandatory claim, which an E is not required to
         // have.
