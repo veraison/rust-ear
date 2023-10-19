@@ -43,11 +43,11 @@ impl TryFrom<&str> for OneNonce {
     type Error = Error;
 
     fn try_from(v: &str) -> Result<Self, Error> {
-        if v.len() >= 10 && v.len() <= 74 {
+        if v.len() >= 8 && v.len() <= 88 {
             Ok(OneNonce::String(v.to_string()))
         } else {
             Err(Error::ParseError(
-                "nonce must be between 10 and 74 characters".to_string(),
+                "nonce must be between 8 and 88 characters".to_string(),
             ))
         }
     }
@@ -318,16 +318,16 @@ mod test {
         let e = Nonce::try_from("foo").unwrap_err();
         assert_eq!(
             e.to_string(),
-            "parse error: nonce must be between 10 and 74 characters"
+            "parse error: nonce must be between 8 and 88 characters"
         );
 
         let e = Nonce::try_from(
-            "a very long nonce value that goes on, and on and on, seemingly without end...",
+            "this is a very long nonce value that goes on, and on and on and on, seemingly without end...",
         )
         .unwrap_err();
         assert_eq!(
             e.to_string(),
-            "parse error: nonce must be between 10 and 74 characters"
+            "parse error: nonce must be between 8 and 88 characters"
         );
     }
 
@@ -368,7 +368,7 @@ mod test {
         let e = Nonce::try_from(["test value one", "foo"].as_slice()).unwrap_err();
         assert_eq!(
             e.to_string(),
-            "parse error: item 1: nonce must be between 10 and 74 characters"
+            "parse error: item 1: nonce must be between 8 and 88 characters"
         );
     }
 
