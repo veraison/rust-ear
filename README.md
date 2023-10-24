@@ -1,5 +1,5 @@
 This is an implementation of [EAT Attestation
-Results](https://www.rfc-editor.org/rfc/internet-drafts/draft-fv-rats-ear-00.html) and [Attestation Results for Secure Interactions (AR4SI)](https://datatracker.ietf.org/doc/draft-ietf-rats-ar4si/).
+Results](https://datatracker.ietf.org/doc/draft-fv-rats-ear/) and [Attestation Results for Secure Interactions (AR4SI)](https://datatracker.ietf.org/doc/draft-ietf-rats-ar4si/).
 
 ## Examples
 
