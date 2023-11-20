@@ -112,6 +112,7 @@ pub mod claim {
 
     pub use super::trust::claim::APPROVED_CONFIG;
     pub use super::trust::claim::NO_CONFIG_VULNS;
+    pub use super::trust::claim::UNAVAIL_CONFIG_ELEMS;
     pub use super::trust::claim::UNSAFE_CONFIG;
     pub use super::trust::claim::UNSUPPORTABLE_CONFIG;
 
