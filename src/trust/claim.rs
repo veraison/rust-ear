@@ -42,7 +42,7 @@ pub static COMMON_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     -1i8 => ValueDescription{
         tag: "verifier_malfunction",
         short: "verifier malfunction",
-        long:  "A verifier malfunction ocurred during evidence appraisal."
+        long:  "A verifier malfunction occurred during evidence appraisal."
     },
     0i8 => ValueDescription{
         tag: "no_claim",
@@ -52,13 +52,13 @@ pub static COMMON_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     1i8 => ValueDescription{
         tag: "unexpected_evidence",
         short: "unexpected evidence",
-        long:  "The evidence received contains unexpected elements witch the \
+        long:  "The evidence received contains unexpected elements which the \
                 verifier is unable to parse."
     },
     99i8 => ValueDescription{
-            tag:   "crypto_failed",
-            short: "cryptographic validation failed",
-            long:  "Cryptographic validation of the Evidence has failed.",
+        tag:   "crypto_failed",
+        short: "cryptographic validation failed",
+        long:  "Cryptographic validation of the Evidence has failed.",
     },
 };
 
@@ -73,23 +73,22 @@ pub const UNRECOGNIZED_INSTANCE: i8 = 97;
 
 pub static INSTANCE_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-        tag: "recognized_instance",
-        short: "unexpected evidence",
-        long:  "The Evidence received contains unexpected elements \
-                which the Verifier is unable to parse.",
-
+        tag:   "recognized_instance",
+        short: "trustworthy instance",
+        long:  "The Attesting Environment is recognized, and the associated \
+                instance of the Attester is not known to be compromised.",
     },
     96i8 => ValueDescription{
-            tag:   "untrustworthy_instance",
-            short: "recognized but not trustworthy",
-            long:  "The Attesting Environment is recognized, but its unique private key \
-                    indicates a device which is not trustworthy.",
+        tag:   "untrustworthy_instance",
+        short: "recognized but not trustworthy",
+        long:  "The Attesting Environment is recognized, but its unique private key \
+                indicates a device which is not trustworthy.",
     },
     97i8 => ValueDescription{
-            tag:   "unrecognized_instance",
-            short: "not recognized",
-            long:  "The Attesting Environment is not recognized; however the verifier \
-                    believes it should be.",
+        tag:   "unrecognized_instance",
+        short: "not recognized",
+        long:  "The Attesting Environment is not recognized; however the verifier \
+                believes it should be.",
     },
 };
 
@@ -101,29 +100,36 @@ pub static CONFIG_CLAIM_DESC: &ClaimDescripiton<'static> = &ClaimDescripiton {
 pub const APPROVED_CONFIG: i8 = 2;
 pub const NO_CONFIG_VULNS: i8 = 3;
 pub const UNSAFE_CONFIG: i8 = 32;
+pub const UNAVAIL_CONFIG_ELEMS: i8 = 36;
 pub const UNSUPPORTABLE_CONFIG: i8 = 96;
 
 pub static CONFIG_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-            tag:   "approved_config",
-            short: "all recognized and approved",
-            long:  "The configuration is a known and approved config.",
+        tag:   "approved_config",
+        short: "all recognized and approved",
+        long:  "The configuration is a known and approved config.",
     },
     3i8 => ValueDescription{
-            tag:   "safe_config",
-            short: "no known vulnerabilities",
-            long:  "The configuration includes or exposes no known vulnerabilities",
+        tag:   "safe_config",
+        short: "no known vulnerabilities",
+        long:  "The configuration includes or exposes no known vulnerabilities",
     },
     32i8 => ValueDescription{
-            tag:   "unsafe_config",
-            short: "known vulnerabilities",
-            long:  "The configuration includes or exposes known vulnerabilities.",
+        tag:   "unsafe_config",
+        short: "known vulnerabilities",
+        long:  "The configuration includes or exposes known vulnerabilities.",
+    },
+    36i8 => ValueDescription{
+        tag:   "unavailable_config",
+        short: "config elements unavailable",
+        long:  "Elements of the configuration relevant to security are unavailable \
+                to the Verifier.",
     },
     96i8 => ValueDescription{
-            tag:   "unsupportable_config",
-            short: "unacceptable security vulnerabilities",
-            long:  "The configuration is unsupportable as it exposes unacceptable \
-                    security vulnerabilities",
+        tag:   "unsupportable_config",
+        short: "unacceptable security vulnerabilities",
+        long:  "The configuration is unsupportable as it exposes unacceptable \
+                security vulnerabilities",
     },
 };
 
@@ -140,10 +146,10 @@ pub const CONTRAINDICATED_RUNTIME: i8 = 96;
 
 pub static EXECUTABLES_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-            tag:   "approved_rt",
-            short: "recognized and approved boot- and run-time",
-            long:  "Only a recognized genuine set of approved executables, scripts, files, \
-                    and/or objects have been loaded during and after the boot process.",
+        tag:   "approved_rt",
+        short: "recognized and approved boot- and run-time",
+        long:  "Only a recognized genuine set of approved executables, scripts, files, \
+                and/or objects have been loaded during and after the boot process.",
     },
     3i8 => ValueDescription{
             tag:   "approved_boot",
@@ -152,23 +158,23 @@ pub static EXECUTABLES_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map
                     loaded during the boot process.",
     },
     32i8 => ValueDescription{
-            tag:   "unsafe_rt",
-            short: "recognized but known bugs or vulnerabilities",
-            long:  "Only a recognized genuine set of executables, scripts, files, and/or \
-                    objects have been loaded. However the Verifier cannot vouch for a subset \
-                    of these due to known bugs or other known vulnerabilities.",
+        tag:   "unsafe_rt",
+        short: "recognized but known bugs or vulnerabilities",
+        long:  "Only a recognized genuine set of executables, scripts, files, and/or \
+                objects have been loaded. However the Verifier cannot vouch for a subset \
+                of these due to known bugs or other known vulnerabilities.",
     },
     33i8 => ValueDescription{
-            tag:   "unrecognized_rt",
-            short: "unrecognized run-time",
-            long:  "Runtime memory includes executables, scripts, files, and/or objects which \
-                    are not recognized.",
+        tag:   "unrecognized_rt",
+        short: "unrecognized run-time",
+        long:  "Runtime memory includes executables, scripts, files, and/or objects which \
+                are not recognized.",
     },
     96i8 => ValueDescription{
-            tag:   "contraindicated_rt",
-            short: "contraindicated run-time",
-            long:  "Runtime memory includes executables, scripts, files, and/or object which \
-                    are contraindicated.",
+        tag:   "contraindicated_rt",
+        short: "contraindicated run-time",
+        long:  "Runtime memory includes executables, scripts, files, and/or object which \
+                are contraindicated.",
     },
 };
 
@@ -183,19 +189,19 @@ pub const CONTRAINDICATED_FILES: i8 = 96;
 
 pub static FILE_SYSTEM_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-            tag:   "approved_fs",
-            short: "all recognized and approved",
-            long:  "Only a recognized set of approved files are found.",
+        tag:   "approved_fs",
+        short: "all recognized and approved",
+        long:  "Only a recognized set of approved files are found.",
     },
     32i8 => ValueDescription{
-            tag:   "unrecognized_fs",
-            short: "unrecognized item(s) found",
-            long:  "The file system includes unrecognized executables, scripts, or files.",
+        tag:   "unrecognized_fs",
+        short: "unrecognized item(s) found",
+        long:  "The file system includes unrecognized executables, scripts, or files.",
     },
     96i8 => ValueDescription{
-            tag:   "contraindicated_fs",
-            short: "contraindicated item(s) found",
-            long:  "The file system includes contraindicated executables, scripts, or files.",
+        tag:   "contraindicated_fs",
+        short: "contraindicated item(s) found",
+        long:  "The file system includes contraindicated executables, scripts, or files.",
     },
 };
 
@@ -211,28 +217,28 @@ pub const UNRECOGNIZED_HARDWARE: i8 = 97;
 
 pub static HARDWARE_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-            tag:   "genuine_hw",
-            short: "genuine",
-            long:  "An Attester has passed its hardware and/or firmware verifications \
-                    needed to demonstrate that these are genuine/supported.",
+        tag:   "genuine_hw",
+        short: "genuine",
+        long:  "An Attester has passed its hardware and/or firmware verifications \
+                needed to demonstrate that these are genuine/supported.",
     },
     32i8 => ValueDescription{
-            tag:   "unsafe_hw",
-            short: "genuine but known bugs or vulnerabilities",
-            long:  "An Attester contains only genuine/supported hardware and/or firmware, \
-                    but there are known security vulnerabilities.",
+        tag:   "unsafe_hw",
+        short: "genuine but known bugs or vulnerabilities",
+        long:  "An Attester contains only genuine/supported hardware and/or firmware, \
+                but there are known security vulnerabilities.",
     },
     96i8 => ValueDescription{
-            tag:   "contraindicated_hw",
-            short: "genuine but contraindicated",
-            long:  "Attester hardware and/or firmware is recognized, but its trustworthiness \
-                    is contraindicated.",
+        tag:   "contraindicated_hw",
+        short: "genuine but contraindicated",
+        long:  "Attester hardware and/or firmware is recognized, but its trustworthiness \
+                is contraindicated.",
     },
     97i8 => ValueDescription{
-            tag:   "unrecognized_hw",
-            short: "unrecognized",
-            long:  "A Verifier does not recognize an Attester's hardware or firmware, but it \
-                    should be recognized.",
+        tag:   "unrecognized_hw",
+        short: "unrecognized",
+        long:  "A Verifier does not recognize an Attester's hardware or firmware, but it \
+                should be recognized.",
     },
 };
 
@@ -247,24 +253,24 @@ pub const VISIBLE_MEMORY_RUNTIME: i8 = 96;
 
 pub static RUNTIME_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-            tag:   "encrypted_rt",
-            short: "memory encryption",
-            long:  "the Attester's executing Target Environment and Attesting Environments \
-                    are encrypted and within Trusted Execution Environment(s) opaque to \
-                    the operating system, virtual machine manager, and peer applications.",
+        tag:   "encrypted_rt",
+        short: "memory encryption",
+        long:  "the Attester's executing Target Environment and Attesting Environments \
+                are encrypted and within Trusted Execution Environment(s) opaque to \
+                the operating system, virtual machine manager, and peer applications.",
     },
     32i8 => ValueDescription{
-            tag:   "isolated_rt",
-            short: "memory isolation",
-            long:  "the Attester's executing Target Environment and Attesting Environments \
-                    are inaccessible from any other parallel application or Guest VM running \
-                    on the Attester's physical device.",
+        tag:   "isolated_rt",
+        short: "memory isolation",
+        long:  "the Attester's executing Target Environment and Attesting Environments \
+                are inaccessible from any other parallel application or Guest VM running \
+                on the Attester's physical device.",
     },
     96i8 => ValueDescription{
-            tag:   "visible_rt",
-            short: "visible",
-            long:  "The Verifier has concluded that in memory objects are unacceptably visible \
-                    within the physical host that supports the Attester.",
+        tag:   "visible_rt",
+        short: "visible",
+        long:  "The Verifier has concluded that in memory objects are unacceptably visible \
+                within the physical host that supports the Attester.",
     },
 };
 
@@ -279,22 +285,22 @@ pub const UNENCRYPTED_SECRETS: i8 = 96;
 
 pub static STORAGE_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-            tag:   "hw_encrypted_secrets",
-            short: "encrypted secrets with HW-backed keys",
-            long:  "the Attester encrypts all secrets in persistent storage via using keys \
-                    which are never visible outside an HSM or the Trusted Execution Environment \
-                    hardware.",
+        tag:   "hw_encrypted_secrets",
+        short: "encrypted secrets with HW-backed keys",
+        long:  "the Attester encrypts all secrets in persistent storage via using keys \
+                which are never visible outside an HSM or the Trusted Execution Environment \
+                hardware.",
     },
     32i8 => ValueDescription{
-            tag:   "sw_encrypted_secrets",
-            short: "encrypted secrets with non HW-backed keys",
-            long:  "the Attester encrypts all persistently stored secrets, but without using \
-                    hardware backed keys.",
+        tag:   "sw_encrypted_secrets",
+        short: "encrypted secrets with non HW-backed keys",
+        long:  "the Attester encrypts all persistently stored secrets, but without using \
+                hardware backed keys.",
     },
     96i8 => ValueDescription{
-            tag:   "unencrypted_secrets",
-            short: "unencrypted secrets",
-            long:  "There are persistent secrets which are stored unencrypted in an Attester.",
+        tag:   "unencrypted_secrets",
+        short: "unencrypted secrets",
+        long:  "There are persistent secrets which are stored unencrypted in an Attester.",
     },
 };
 
@@ -309,23 +315,23 @@ pub const CONTRAINDICATED_SOURCES: i8 = 96;
 
 pub static SOURCED_DATA_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_map! {
     2i8 => ValueDescription{
-            tag:   "trusted_sources",
-            short: "from attesters in the affirming tier",
-            long:  "All essential Attester source data objects have been provided by other \
-                    Attester(s) whose most recent appraisal(s) had both no Trustworthiness \
-                    Claims of \"0\" where the current Trustworthiness Claim is \"Affirmed\", \
-                    as well as no \"Warning\" or \"Contraindicated\" Trustworthiness Claims.",
+        tag:   "trusted_sources",
+        short: "from attesters in the affirming tier",
+        long:  "All essential Attester source data objects have been provided by other \
+                Attester(s) whose most recent appraisal(s) had both no Trustworthiness \
+                Claims of \"0\" where the current Trustworthiness Claim is \"Affirmed\", \
+                as well as no \"Warning\" or \"Contraindicated\" Trustworthiness Claims.",
     },
     32i8 => ValueDescription{
-            tag:   "untrusted_sources",
-            short: "from unattested sources or attesters in the warning tier",
-            long:  "Attester source data objects come from unattested sources, or attested \
-                    sources with \"Warning\" type Trustworthiness Claims",
+        tag:   "untrusted_sources",
+        short: "from unattested sources or attesters in the warning tier",
+        long:  "Attester source data objects come from unattested sources, or attested \
+                sources with \"Warning\" type Trustworthiness Claims",
     },
     96i8 => ValueDescription{
-            tag:   "contraindicated_sources",
-            short: "from attesters in the contraindicated tier",
-            long:  "Attester source data objects come from contraindicated sources.",
+        tag:   "contraindicated_sources",
+        short: "from attesters in the contraindicated tier",
+        long:  "Attester source data objects come from contraindicated sources.",
     },
 };
 
