@@ -146,6 +146,9 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
         loop {
             if self.is_human_readable {
                 match map.next_key::<&str>()? {
+                    Some("ear.veraison.key-attestation") => {
+                        appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
+                    }
                     Some("ear.status") => appraisal.status = map.next_value::<TrustTier>()?,
                     Some("ear.trustworthiness-vector") => {
                         appraisal.trust_vector = map.next_value::<TrustVector>()?
