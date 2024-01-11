@@ -146,9 +146,6 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
         loop {
             if self.is_human_readable {
                 match map.next_key::<&str>()? {
-                    Some("ear.veraison.key-attestation") => {
-                        appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
-                    }
                     Some("ear.status") => appraisal.status = map.next_value::<TrustTier>()?,
                     Some("ear.trustworthiness-vector") => {
                         appraisal.trust_vector = map.next_value::<TrustVector>()?
@@ -162,6 +159,9 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                     }
                     Some("ear.veraison.policy-claims") => {
                         appraisal.policy_claims = map.next_value::<BTreeMap<String, RawValue>>()?
+                    }
+                    Some("ear.veraison.key-attestation") => {
+                        appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
                     Some(_) => (), // unknown extensions are ignored
                     None => break,
@@ -178,6 +178,9 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                     }
                     Some(-70001) => {
                         appraisal.policy_claims = map.next_value::<BTreeMap<String, RawValue>>()?
+                    }
+                    Some(-70002) => {
+                        appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
                     Some(_) => (), // unknown extensions are ignored
                     None => break,
