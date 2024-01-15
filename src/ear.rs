@@ -112,10 +112,10 @@ impl Ear {
         let cose_alg = alg_to_cose(&alg)?;
 
         let mut cose_key = cose::keys::CoseKey::new();
-        cose_key.alg(match jwk.common.algorithm {
-            Some(jwt::Algorithm::ES256) => cose::algs::ES256,
-            Some(jwt::Algorithm::ES384) => cose::algs::ES384,
-            Some(jwt::Algorithm::EdDSA) => cose::algs::EDDSA,
+        cose_key.alg(match jwk.common.key_algorithm {
+            Some(jwt::jwk::KeyAlgorithm::ES256) => cose::algs::ES256,
+            Some(jwt::jwk::KeyAlgorithm::ES384) => cose::algs::ES384,
+            Some(jwt::jwk::KeyAlgorithm::EdDSA) => cose::algs::EDDSA,
             Some(a) => return Err(Error::KeyError(format!("unsupported algorithm {a:?}"))),
             None => cose_alg,
         });
