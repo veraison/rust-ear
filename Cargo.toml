@@ -10,7 +10,7 @@ keywords = ["ear", "serde"]
 categories = ["data-structures", "encoding"]
 
 [dependencies]
-base64 = "0.21.2"
+base64 = "0.22.0"
 ciborium = "0.2.0"
 cose-rust = "0.1.2"
 hex = "0.4.3"
