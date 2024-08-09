@@ -7,7 +7,7 @@ use serde::{
     ser::{Serialize, SerializeMap},
 };
 
-use crate::{KeyAttestation, RawValue, TrustTier, TrustVector};
+use crate::{get_profile, Error, Extensions, KeyAttestation, RawValue, TrustTier, TrustVector};
 
 /// An appraisal crated by a verifier of the evidence provided by an attester
 #[derive(Debug, PartialEq)]
@@ -28,6 +28,8 @@ pub struct Appraisal {
     pub policy_claims: BTreeMap<String, RawValue>,
     /// Claims about the public key that is being attested
     pub key_attestation: Option<KeyAttestation>,
+    /// extension claims
+    pub extensions: Extensions,
 }
 
 impl Appraisal {
@@ -40,6 +42,28 @@ impl Appraisal {
             annotated_evidence: BTreeMap::new(),
             policy_claims: BTreeMap::new(),
             key_attestation: None,
+            extensions: Extensions::new(),
+        }
+    }
+
+    /// Create an empty Appraisal, registering extensions associated with the specified profile
+    pub fn new_with_profile(profile: &str) -> Result<Appraisal, Error> {
+        let mut appraisal = Appraisal {
+            status: TrustTier::None,
+            trust_vector: TrustVector::new(),
+            policy_id: None,
+            annotated_evidence: BTreeMap::new(),
+            policy_claims: BTreeMap::new(),
+            key_attestation: None,
+            extensions: Extensions::new(),
+        };
+
+        match get_profile(profile) {
+            Some(profile) => {
+                profile.populate_appraisal_extensions(&mut appraisal)?;
+                Ok(appraisal)
+            }
+            None => Err(Error::ProfileError(format!("{profile} is not registered"))),
         }
     }
 
@@ -87,6 +111,8 @@ impl Serialize for Appraisal {
             if !self.policy_claims.is_empty() {
                 map.serialize_entry("ear.veraison.policy-claims", &self.policy_claims)?;
             }
+
+            self.extensions.serialize_to_map_by_name(&mut map)?;
         } else {
             // !is_human_readable
             map.serialize_entry(&1000, &self.status)?;
@@ -107,6 +133,8 @@ impl Serialize for Appraisal {
             if !self.policy_claims.is_empty() {
                 map.serialize_entry(&-70001, &self.policy_claims)?;
             }
+
+            self.extensions.serialize_to_map_by_key(&mut map)?;
         }
 
         map.end()
@@ -163,7 +191,9 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                     Some("ear.veraison.key-attestation") => {
                         appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
-                    Some(_) => (), // unknown extensions are ignored
+                    Some(name) => appraisal
+                        .extensions
+                        .visit_map_entry_by_name(name, &mut map)?,
                     None => break,
                 }
             } else {
@@ -182,7 +212,7 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                     Some(-70002) => {
                         appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
-                    Some(_) => (), // unknown extensions are ignored
+                    Some(key) => appraisal.extensions.visit_map_entry_by_key(key, &mut map)?,
                     None => break,
                 }
             }

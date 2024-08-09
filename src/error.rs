@@ -32,4 +32,10 @@ pub enum Error {
     // invalid integer key
     #[error("invalid key: {0}")]
     InvalidKey(i32),
+    // error while registering or accessing extensions
+    #[error("extension error: {0}")]
+    ExtensionError(String),
+    // error while registering or accessing profiles
+    #[error("profile error: {0}")]
+    ProfileError(String),
 }

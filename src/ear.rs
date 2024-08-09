@@ -15,6 +15,7 @@ use crate::algorithm::Algorithm;
 use crate::appraisal::Appraisal;
 use crate::base64::{self, Bytes};
 use crate::error::Error;
+use crate::extension::{get_profile, Extensions};
 use crate::id::VerifierID;
 use crate::nonce::Nonce;
 use crate::trust::tier::TrustTier;
@@ -50,12 +51,14 @@ pub struct Ear {
     pub submods: BTreeMap<String, Appraisal>,
     /// A use-supplied nonce echoed by the verifier to provide freshness
     pub nonce: Option<Nonce>,
-    // Raw encoded evidence received by the verifier
+    /// Raw encoded evidence received by the verifier
     pub raw_evidence: Option<Bytes>,
+    /// extension claims
+    pub extensions: Extensions,
 }
 
 impl Ear {
-    // Create an empty EAR
+    /// Create an empty EAR
     pub fn new() -> Ear {
         Ear {
             profile: "".to_string(),
@@ -64,6 +67,28 @@ impl Ear {
             submods: BTreeMap::new(),
             nonce: None,
             raw_evidence: None,
+            extensions: Extensions::new(),
+        }
+    }
+
+    /// Create an empty EAR, registering extensions associated with the specified profile
+    pub fn new_with_profile(profile: &str) -> Result<Ear, Error> {
+        let mut ear = Ear {
+            profile: profile.to_string(),
+            iat: 0,
+            vid: VerifierID::new(),
+            submods: BTreeMap::new(),
+            nonce: None,
+            raw_evidence: None,
+            extensions: Extensions::new(),
+        };
+
+        match get_profile(&ear.profile) {
+            Some(profile) => {
+                profile.populate_ear_extensions(&mut ear)?;
+                Ok(ear)
+            }
+            None => Err(Error::ProfileError(format!("{profile} is not registered"))),
         }
     }
 
@@ -388,6 +413,8 @@ impl Serialize for Ear {
                 Some(r) => map.serialize_entry("ear.raw-evidence", &r)?,
                 None => (),
             }
+
+            self.extensions.serialize_to_map_by_name(&mut map)?;
         } else {
             // !is_human_readable
             map.serialize_entry(&265, &self.profile)?;
@@ -404,6 +431,8 @@ impl Serialize for Ear {
                 Some(r) => map.serialize_entry(&1002, &r)?,
                 None => (),
             }
+
+            self.extensions.serialize_to_map_by_key(&mut map)?;
         }
 
         map.end()
@@ -451,7 +480,7 @@ impl<'de> Visitor<'de> for EarVisitor {
                     }
                     Some("eat_nonce") => ear.nonce = Some(map.next_value::<Nonce>()?),
                     Some("ear.raw-evidence") => ear.raw_evidence = Some(map.next_value::<Bytes>()?),
-                    Some(_) => (), // ignore unknown extensions
+                    Some(name) => ear.extensions.visit_map_entry_by_name(name, &mut map)?,
                     None => break,
                 }
             } else {
@@ -463,10 +492,16 @@ impl<'de> Visitor<'de> for EarVisitor {
                     Some(266) => ear.submods = map.next_value::<BTreeMap<String, Appraisal>>()?,
                     Some(10) => ear.nonce = Some(map.next_value::<Nonce>()?),
                     Some(1002) => ear.raw_evidence = Some(map.next_value::<Bytes>()?),
-                    Some(_) => (), // ignore unknown extensions
+                    Some(key) => ear.extensions.visit_map_entry_by_key(key, &mut map)?,
                     None => break,
                 }
             }
+        }
+
+        if let Some(profile) = get_profile(&ear.profile) {
+            profile
+                .populate_ear_extensions(&mut ear)
+                .map_err(de::Error::custom)?
         }
 
         ear.validate().map_err(de::Error::custom)?;
@@ -487,8 +522,10 @@ fn alg_to_cose(alg: &Algorithm) -> Result<i32, Error> {
 }
 
 #[cfg(test)]
+#[rustfmt::skip::macros(vec)]
 mod test {
     use super::*;
+    use crate::extension::*;
     use ciborium::{de::from_reader, ser::into_writer};
 
     const EAR_STRING: &str = r#"
@@ -503,6 +540,26 @@ mod test {
             "test": {"ear.status": "none"}
         },
         "ear.raw-evidence":"NzQ3MjY5NzM2NTYzNzQK"
+    }
+    "#;
+
+    const EAR_WITH_EXTENSIONS_STRING: &str = r#"
+    {
+        "eat_profile":"tag:github.com,2023:veraison/ear",
+        "iat":1666529184,
+        "ear.verifier-id":{
+            "build":"vsts 0.0.1",
+            "developer":"https://veraison-project.org"
+        },
+        "submods":{
+            "test": {
+                "ear.status": "none",
+                "ext3": "3q2-7w"
+            }
+        },
+        "ear.raw-evidence":"NzQ3MjY5NzM2NTYzNzQK",
+        "ext1": "foo",
+        "ext2": 42
     }
     "#;
 
@@ -533,6 +590,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
             raw_evidence: None,
             nonce: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
+            extensions: Extensions::new(),
         };
 
         let signed = ear
@@ -557,6 +615,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
             raw_evidence: None,
             nonce: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
+            extensions: Extensions::new(),
         };
 
         let signed = ear
@@ -587,6 +646,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
             )),
             nonce: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
+            extensions: Extensions::new(),
         };
 
         let val = serde_json::to_string(&ear).unwrap();
@@ -600,45 +660,46 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
         assert_eq!(
             buf,
             vec![
-                0xbf, // map (indefinte length)
-                0x19, // unsigned int in the next 2 bytes
-                0x01, 0x09, // 265
-                0x78, 0x20, // text string (32)
-                0x74, 0x61, 0x67, 0x3a, 0x67, 0x69, 0x74, 0x68, // "tag:gith"
-                0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2c, 0x32, // "ub.com,2"
-                0x30, 0x32, 0x33, 0x3a, 0x76, 0x65, 0x72, 0x61, // "023:vera"
-                0x69, 0x73, 0x6f, 0x6e, 0x2f, 0x65, 0x61, 0x72, // "ison/ear"
-                0x06, // 6
-                0x1a, // unsigned int in the next 4 bytes
-                0x63, 0x55, 0x37, 0xa0, // 1666529184
-                0x19, // unsigned int in the next 2 bytes
-                0x3, 0xec, // 1004
-                0xa2, // map (2)
-                0x00, // 0
-                0x78, 0x1c, // text string (28)
-                0x68, 0x74, 0x74, 0x70, 0x73, 0x3a, 0x2f, 0x2f, // "https://"
-                0x76, 0x65, 0x72, 0x61, 0x69, 0x73, 0x6f, 0x6e, // "veraison"
-                0x2d, 0x70, 0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, // "-project"
-                0x2e, 0x6f, 0x72, 0x67, // ".org"
-                0x01, // 1
-                0x6a, // text string (10)
-                0x76, 0x73, 0x74, 0x73, 0x20, 0x30, 0x2e, 0x30, // "vsts 0.0"
-                0x2e, 0x31, // ".1"
-                0x19, // unsigned int in the next 2 bytes
-                0x01, 0x0a, // 266
-                0xa1, // map (1)
-                0x64, //  text string (4)
-                0x74, 0x65, 0x73, 0x74, // "test"
                 0xbf, // map (indefinite length)
-                0x19, // unsigned int in the next 2 bytes
-                0x03, 0xe8, // 1000
-                0x00, // 0
-                0xff, // break
-                0x19, // unsigned int in the next 2 bytes
-                0x03, 0xea, // 1002
-                0x4f, // byte string (15)
-                0x37, 0x34, 0x37, 0x32, 0x36, 0x39, 0x37, 0x33, 0x36, 0x35, 0x36, 0x33, 0x37, 0x34,
-                0x0a, 0xff,
+                  0x19, // unsigned int in the next 2 bytes
+                    0x01, 0x09, // 265
+                  0x78, 0x20, // text string (32)
+                    0x74, 0x61, 0x67, 0x3a, 0x67, 0x69, 0x74, 0x68, // "tag:gith"
+                    0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2c, 0x32, // "ub.com,2"
+                    0x30, 0x32, 0x33, 0x3a, 0x76, 0x65, 0x72, 0x61, // "023:vera"
+                    0x69, 0x73, 0x6f, 0x6e, 0x2f, 0x65, 0x61, 0x72, // "ison/ear"
+                  0x06, // 6
+                  0x1a, // unsigned int in the next 4 bytes
+                    0x63, 0x55, 0x37, 0xa0, // 1666529184
+                  0x19, // unsigned int in the next 2 bytes
+                    0x3, 0xec, // 1004
+                  0xa2, // map (2)
+                    0x00, // 0
+                    0x78, 0x1c, // text string (28)
+                      0x68, 0x74, 0x74, 0x70, 0x73, 0x3a, 0x2f, 0x2f, // "https://"
+                      0x76, 0x65, 0x72, 0x61, 0x69, 0x73, 0x6f, 0x6e, // "veraison"
+                      0x2d, 0x70, 0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, // "-project"
+                      0x2e, 0x6f, 0x72, 0x67, // ".org"
+                    0x01, // 1
+                    0x6a, // text string (10)
+                      0x76, 0x73, 0x74, 0x73, 0x20, 0x30, 0x2e, 0x30, // "vsts 0.0"
+                      0x2e, 0x31, // ".1"
+                  0x19, // unsigned int in the next 2 bytes
+                    0x01, 0x0a, // 266
+                  0xa1, // map (1)
+                    0x64, //  text string (4)
+                      0x74, 0x65, 0x73, 0x74, // "test"
+                    0xbf, // map (indefinite length)
+                      0x19, // unsigned int in the next 2 bytes
+                        0x03, 0xe8, // 1000
+                      0x00, // 0
+                    0xff, // break / end indefinite map
+                  0x19, // unsigned int in the next 2 bytes
+                    0x03, 0xea, // 1002
+                  0x4f, // byte string (15)
+                    0x37, 0x34, 0x37, 0x32, 0x36, 0x39, 0x37, 0x33,
+                    0x36, 0x35, 0x36, 0x33, 0x37, 0x34, 0x0a,
+                0xff, // break / end indefinite map
             ]
         );
 
@@ -655,6 +716,94 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
         assert_eq!(ear.vid.build, ear2.vid.build);
         assert_eq!(ear.vid.developer, ear2.vid.developer);
         assert_eq!(ear.raw_evidence, ear2.raw_evidence);
+    }
+
+    #[test]
+    fn serde_extensions() {
+        let mut profile = Profile::new("tag:github.com,2023:veraison/ear");
+        profile
+            .register_ear_extension("ext1", -1, ExtensionKind::String)
+            .unwrap();
+        profile
+            .register_ear_extension("ext2", -2, ExtensionKind::Integer)
+            .unwrap();
+        profile
+            .register_appraisal_extension("ext3", -1, ExtensionKind::Bytes)
+            .unwrap();
+        register_profile(&profile).unwrap();
+
+        let ear = serde_json::from_str::<Ear>(EAR_WITH_EXTENSIONS_STRING).unwrap();
+
+        let v1 = ear.extensions.get_by_name("ext1").unwrap();
+        assert_eq!(v1, ExtensionValue::String("foo".to_string()));
+
+        let text = serde_json::to_string(&ear).unwrap();
+        assert_eq!(
+            text.parse::<serde_json::Value>().unwrap(),
+            EAR_WITH_EXTENSIONS_STRING
+                .parse::<serde_json::Value>()
+                .unwrap(),
+        );
+
+        let mut buf: Vec<u8> = Vec::new();
+        into_writer(&ear, &mut buf).unwrap();
+        assert_eq!(
+            buf,
+            vec![
+                0xbf, // map (indefinite length)
+                  0x19, // unsigned int in the next 2 bytes
+                    0x01, 0x09, // 265
+                  0x78, 0x20, // text string (32)
+                    0x74, 0x61, 0x67, 0x3a, 0x67, 0x69, 0x74, 0x68, // "tag:gith"
+                    0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2c, 0x32, // "ub.com,2"
+                    0x30, 0x32, 0x33, 0x3a, 0x76, 0x65, 0x72, 0x61, // "023:vera"
+                    0x69, 0x73, 0x6f, 0x6e, 0x2f, 0x65, 0x61, 0x72, // "ison/ear"
+                  0x06, // 6
+                  0x1a, // unsigned int in the next 4 bytes
+                    0x63, 0x55, 0x37, 0xa0, // 1666529184
+                  0x19, // unsigned int in the next 2 bytes
+                    0x3, 0xec, // 1004
+                  0xa2, // map (2)
+                    0x00, // 0
+                    0x78, 0x1c, // text string (28)
+                      0x68, 0x74, 0x74, 0x70, 0x73, 0x3a, 0x2f, 0x2f, // "https://"
+                      0x76, 0x65, 0x72, 0x61, 0x69, 0x73, 0x6f, 0x6e, // "veraison"
+                      0x2d, 0x70, 0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, // "-project"
+                      0x2e, 0x6f, 0x72, 0x67, // ".org"
+                    0x01, // 1
+                    0x6a, // text string (10)
+                      0x76, 0x73, 0x74, 0x73, 0x20, 0x30, 0x2e, 0x30, // "vsts 0.0"
+                      0x2e, 0x31, // ".1"
+                  0x19, // unsigned int in the next 2 bytes
+                    0x01, 0x0a, // 266
+                  0xa1, // map (1)
+                    0x64, //  text string (4)
+                      0x74, 0x65, 0x73, 0x74, // "test"
+                    0xbf, // map (indefinite length)
+                      0x19, // unsigned int in the next 2 bytes
+                        0x03, 0xe8, // 1000
+                      0x00, // 0
+                      0x20, // -1
+                      0x44, // byte string (3)
+                        0xde, 0xad, 0xbe, 0xef,
+                    0xff, // break / end indefinite map
+                  0x19, // unsigned int in the next 2 bytes
+                    0x03, 0xea, // 1002
+                  0x4f, // byte string (15)
+                    0x37, 0x34, 0x37, 0x32, 0x36, 0x39, 0x37, 0x33,
+                    0x36, 0x35, 0x36, 0x33, 0x37, 0x34, 0x0a,
+                  0x21, // -2
+                  0x18, // unsigned int next byte
+                    0x2a, // 42
+                  0x20, // -1
+                  0x63, // text string (3)
+                    0x66, 0x6f, 0x6f, // "foo"
+                0xff, // break / end indefinite map
+            ]
+        );
+
+        let ear2: Ear = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(ear, ear2);
     }
 
     #[test]
