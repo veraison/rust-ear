@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::base64::Bytes;
-use crate::error::Error;
+use std::fmt;
+
 use serde::de::{self, Deserialize, Visitor};
 use serde::ser::{Error as _, Serialize, SerializeSeq as _, Serializer};
+
+use crate::base64::Bytes;
+use crate::error::Error;
 
 #[derive(Debug, PartialEq)]
 enum OneNonce {
@@ -53,12 +56,17 @@ impl TryFrom<&str> for OneNonce {
     }
 }
 
-impl ToString for OneNonce {
-    fn to_string(&self) -> String {
-        match self {
-            OneNonce::Bytes(v) => hex::encode(v.as_slice()),
-            OneNonce::String(v) => v.to_owned(),
-        }
+impl fmt::Display for OneNonce {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let enc: String;
+
+        f.write_str(match self {
+            OneNonce::Bytes(v) => {
+                enc = hex::encode(v.as_slice());
+                &enc
+            }
+            OneNonce::String(v) => v,
+        })
     }
 }
 
@@ -199,26 +207,31 @@ impl TryFrom<&[Vec<u8>]> for Nonce {
     }
 }
 
-impl ToString for Nonce {
-    fn to_string(&self) -> String {
+impl fmt::Display for Nonce {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let len = self.0.len();
-        match len {
-            0 => "".to_string(),
-            1 => self.0[0].to_string(),
+        let mut enc: String;
+
+        f.write_str(match len {
+            0 => "",
+            1 => {
+                enc = self.0[0].to_string();
+                &enc
+            }
             _ => {
-                let mut s = "[".to_owned();
+                enc = "[".to_owned();
 
                 for (i, on) in self.0.iter().enumerate() {
-                    s.push_str(on.to_string().as_str());
+                    enc.push_str(on.to_string().as_str());
                     if i < (len - 1) {
-                        s.push_str(", ");
+                        enc.push_str(", ");
                     }
                 }
-                s.push(']');
+                enc.push(']');
 
-                s
+                &enc
             }
-        }
+        })
     }
 }
 
