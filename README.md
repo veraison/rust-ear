@@ -1,13 +1,26 @@
-This is an implementation of [EAT Attestation
-Results](https://datatracker.ietf.org/doc/draft-fv-rats-ear/) and [Attestation Results for Secure Interactions (AR4SI)](https://datatracker.ietf.org/doc/draft-ietf-rats-ar4si/).
+<!-- cargo-rdme start -->
 
-## Examples
+An implementation of EAT Attestation Results token.
 
-### Signing
+This crate provides an implementation of attestation results tokens that conforms to EAT
+Attestation Results [draft-fv-rats-ear] specification. This defines a token intended to
+communicate a set of appraisals of attested evidence produced by a verifier. Each appraisal is
+based around a set of trust claims defined by Attestation Results for Secure Interactions
+(AR4SI) [draft-ietf-rats-ar4si].
+
+The attestation result may be serialized as a signed JSON or CBOR token (using JWT and COSE,
+respectively).
+
+[draft-fv-rats-ear]: https://datatracker.ietf.org/doc/draft-fv-rats-ear/
+[draft-ietf-rats-ar4si]: https://datatracker.ietf.org/doc/draft-ietf-rats-ar4si/
+
+# Examples
+
+## Signing
 
 ```rust
 use std::collections::BTreeMap;
-use ear::{Ear, VerifierID, Algorithm, Appraisal};
+use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions};
 
 const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
@@ -27,13 +40,14 @@ fn main() {
         raw_evidence: None,
         nonce: None,
         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
+        extensions: Extensions::new(),
     };
 
     let signed = token.sign_jwt_pem(Algorithm::ES256, SIGNING_KEY.as_bytes()).unwrap();
 }
 ```
 
-### Verification
+## Verification
 
 ```rust
 use ear::{Ear, Algorithm};
@@ -57,11 +71,11 @@ fn main() {
 
 # Extensions and Profiles
 
-EAR supports extension at top level (i.e. within the `Ear` struct), and also within
-`Appraisal`s. An extension is an additional field definition. Extensions can be defined by
+EAR supports extension at top level (i.e. within the [`Ear`] struct), and also within
+[`Appraisal`]s. An extension is an additional field definition. Extensions can be defined by
 registering them with the `extensions` field of the corresponding struct. When registering an
 extension, you must provide a string name (used in JSON), an integer key (used in CBOR), and an
-`ExtensionKind` indicating which `ExtensionValue`s are valid.
+[`ExtensionKind`] indicating which [`ExtensionValue`]s are valid.
 
 ## Registering individual extensions
 
@@ -102,15 +116,14 @@ assert_eq!(
 );
 ```
 
-Note: if you've obtained the `Ear` by deserializing from CBOR/JSON, `Extensions` struct
+Note: if you've obtained the [`Ear`] by deserializing from CBOR/JSON, [`Extensions`] struct
 will cache any values for any unexpected fields, so that when you register extensions
 afterwards, the corresponding unmarshaled values will be accessible.
 
 ## Using Profiles
 
-Sets of extensions can be associated together within `Profile`s. A `Profile`
-can be registered, and can then be retrieved by its `id` when creating a new
-`Ear` or `Appraisal`
+Sets of extensions can be associated together within [`Profile`]s. A [`Profile`] can be
+registered, and can then be retrieved by its `id` when creating a new [`Ear`] or [`Appraisal`]
 
 ```rust
 use ear::{Ear, Appraisal, ExtensionKind, ExtensionValue, Profile, register_profile};
@@ -158,15 +171,79 @@ fn main() {
        ExtensionValue::Integer(1723534859),
     );
 }
+
 ```
 
-When deserializing an `Ear`, its `profile` field will automatically be used to look up a
-registered profile and add the associated extensions.
+When deserializing an [`Ear`], its `profile` field will automatically be used to look up a
+registred profile and add the associated extensions.
 
-## Limitations
+# JWT/CWT common claims
+
+The only common JWT/CWT claim specified by EAR spec is "iat" (issued at). Other claims (e.g.
+"iss" or "exp") are not not expected to be present inside a valid EAR. It is, however, possible
+to define them for a particular profile and include them as extensions via mechanisms described
+above.
+
+The following example shows how to include and then verify expiration time ("exp" JWT claim)
+inside an EAR.
+
+```rust
+use ear::{Ear, Algorithm, Appraisal, ExtensionKind, ExtensionValue};
+use std::time::{SystemTime, Duration, UNIX_EPOCH};
+
+const VERIF_KEY: &str = r#"
+{
+    "kty":"EC",
+    "crv":"P-256",
+    "x":"G8fAud93NgCg8C_0bY1YqVZ5zNlkb-cNsGTQia7m0is",
+    "y":"RK1gonvUKKQOCSHDwz3SiN9EijCqmXS4sDeRbc8RnL0"
+}
+"#;
+
+const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
+6yjQCRV35J4TUY4idLgiCu6EyLqhRANCAAQbx8C533c2AKDwL/RtjVipVnnM2WRv
+5w2wZNCJrubSK0StYKJ71CikDgkhw8M90ojfRIowqpl0uLA3kW3PEZy9
+-----END PRIVATE KEY-----
+";
+
+let mut ear = Ear::new();
+ear.profile = "tag:github.com,2023:veraison/ear#acme-profile".to_string();
+ear.vid.build = "vsts 0.0.1".to_string();
+ear.vid.developer = "https://veraison-project.org".to_string();
+ear.submods.insert("road-runner-trap".to_string(), Appraisal::new());
+ear.extensions.register("exp", 4, ExtensionKind::Integer).unwrap();
+
+// expire 10 days from now
+let exp = SystemTime::now().checked_add(Duration::from_secs(60*60*24*10)).unwrap()
+                        .duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+
+ear.extensions.set_by_name("exp", ExtensionValue::Integer(exp)).unwrap();
+
+
+let signed = ear
+    .sign_jwt_pem(Algorithm::ES256, SIGNING_KEY.as_bytes())
+    .unwrap();
+
+let mut ear2 =
+    Ear::from_jwt_jwk(signed.as_str(), Algorithm::ES256, VERIF_KEY.as_bytes()).unwrap();
+
+ear2.extensions.register("exp", 4, ExtensionKind::Integer).unwrap();
+
+// Verify the token has not expired.
+let exp2 = match ear2.extensions.get_by_name("exp").unwrap() {
+    ExtensionValue::Integer(v) => Duration::from_secs(v as u64),
+    _ => panic!(),
+};
+assert!(SystemTime::now().duration_since(UNIX_EPOCH).unwrap() < exp2);
+```
+
+# Limitations
 
 - Signing supports PEM and DER keys; verification currently only supports JWK
   keys.
 - JWT signing currently only supports ES256, ES384, EdDSA, PS256, PS384, and
   PS512.
 - COSE signing currently only supports ES256, ES384, ES512, and EdDSA.
+
+<!-- cargo-rdme end -->
