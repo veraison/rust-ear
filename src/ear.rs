@@ -3,6 +3,7 @@ use core::ops::DerefMut;
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use jsonwebtoken::{self as jwt, jwk};
 use openssl::{bn, ec, nid::Nid, pkey};
@@ -62,7 +63,10 @@ impl Ear {
     pub fn new() -> Ear {
         Ear {
             profile: "".to_string(),
-            iat: 0,
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
             vid: VerifierID::new(),
             submods: BTreeMap::new(),
             nonce: None,
@@ -119,7 +123,7 @@ impl Ear {
         key: &jwt::DecodingKey,
     ) -> Result<Self, Error> {
         let mut validation = jwt::Validation::new(alg);
-        // the default validation sets "exp" as a mandatory claim, which an E is not required to
+        // the default validation sets "exp" as a mandatory claim, which an EAR is not required to
         // have.
         validation.set_required_spec_claims::<&str>(&[]);
 
