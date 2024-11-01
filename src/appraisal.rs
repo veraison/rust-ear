@@ -23,10 +23,13 @@ pub struct Appraisal {
     pub policy_id: Option<String>,
     /// Evidence claims extracted and annotated by the verifier from the evidence supplied by the
     /// attester
+    /// (note: this is a Veraison project extension to EAR)
     pub annotated_evidence: BTreeMap<String, RawValue>,
     /// Addition claims made as part of the appraisal based on the policy indicated by `policy_id`
+    /// (note: this is a Veraison project extension to EAR)
     pub policy_claims: BTreeMap<String, RawValue>,
     /// Claims about the public key that is being attested
+    /// (note: this is a Veraison project extension to EAR)
     pub key_attestation: Option<KeyAttestation>,
     /// extension claims
     pub extensions: Extensions,
