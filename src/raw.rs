@@ -14,6 +14,7 @@ use crate::base64::Bytes;
 /// deserialized raw JSON object or CBOR map
 #[derive(Debug, PartialEq)]
 pub enum RawValue {
+    Null,
     Integer(i64),
     Bytes(Bytes),
     Float(f64),
@@ -30,6 +31,7 @@ impl Serialize for RawValue {
         S: Serializer,
     {
         match self {
+            Self::Null => serializer.serialize_unit(),
             Self::Integer(i) => serializer.serialize_i64(*i),
             Self::Bytes(b) => b.serialize(serializer),
             Self::Float(f) => serializer.serialize_f64(*f),
@@ -83,6 +85,10 @@ impl<'de> Visitor<'de> for RawValueVisitor {
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("an arbitrary JSON or CBOR structure")
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+        Ok(RawValue::Null)
     }
 
     fn visit_i8<E: de::Error>(self, v: i8) -> Result<Self::Value, E> {
@@ -314,5 +320,22 @@ mod test {
 
         let rv2: RawValue = from_reader(buf.as_slice()).unwrap();
         assert_eq!(rv2, rv);
+
+        let rv = RawValue::Null;
+
+        let val = serde_json::to_string(&rv).unwrap();
+        assert_eq!("null", val);
+
+        let rv2: RawValue = serde_json::from_str(&val).unwrap();
+        assert_eq!(rv2, RawValue::Null);
+
+        let mut buf: Vec<u8> = Vec::new();
+        into_writer(&rv, &mut buf).unwrap();
+        assert_eq!(
+            vec![
+                0xf6, // null
+            ],
+            buf
+        );
     }
 }
