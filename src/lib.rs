@@ -238,6 +238,48 @@
 //! assert!(SystemTime::now().duration_since(UNIX_EPOCH).unwrap() < exp2);
 //! ```
 //!
+//! # JWT headers
+//!
+//! When signing with `sign_jwt_pem`/`sign_jwk_der`, only the `alg` header is set in the resulting
+//! JWT based on the the specified algorithm. If other headers need to be specified, then
+//! `sign_jwt_pem_with_header` and `sign_jwk_der_with_header` can be used instead; these take a
+//! `jwt::Header` instead of an algorithm. A new header can be created from an algorithm using
+//! `new_jwt_header`.
+//!
+//! ```
+//! use std::collections::BTreeMap;
+//! use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions, new_jwt_header};
+//!
+//! const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
+//! MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
+//! 6yjQCRV35J4TUY4idLgiCu6EyLqhRANCAAQbx8C533c2AKDwL/RtjVipVnnM2WRv
+//! 5w2wZNCJrubSK0StYKJ71CikDgkhw8M90ojfRIowqpl0uLA3kW3PEZy9
+//! -----END PRIVATE KEY-----
+//! ";
+//!
+//! fn main() {
+//!     let token = Ear{
+//!         profile: "test".to_string(),
+//!         iat: 1,
+//!         vid: VerifierID {
+//!             build: "vsts 0.0.1".to_string(),
+//!             developer: "https://veraison-project.org".to_string(),
+//!         },
+//!         raw_evidence: None,
+//!         nonce: None,
+//!         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
+//!         extensions: Extensions::new(),
+//!     };
+//!
+//!     let mut header = new_jwt_header(&Algorithm::ES256).unwrap();
+//!     // set additional header(s)
+//!     header.kid = Some("key-ident".to_string());
+//!
+//!     let signed = token.sign_jwt_pem_with_header(&header, SIGNING_KEY.as_bytes()).unwrap();
+//! }
+//! ```
+//!
+//!
 //! # Limitations
 //!
 //! - Signing supports PEM and DER keys; verification currently only supports JWK
@@ -261,6 +303,7 @@ mod trust;
 pub use self::algorithm::Algorithm;
 pub use self::appraisal::Appraisal;
 pub use self::base64::Bytes;
+pub use self::ear::new_jwt_header;
 pub use self::ear::Ear;
 pub use self::error::Error;
 pub use self::extension::get_profile;

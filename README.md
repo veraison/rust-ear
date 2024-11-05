@@ -180,7 +180,7 @@ registred profile and add the associated extensions.
 # JWT/CWT common claims
 
 The only common JWT/CWT claim specified by EAR spec is "iat" (issued at). Other claims (e.g.
-"iss" or "exp") are not not expected to be present inside a valid EAR. It is, however, possible
+"iss" or "exp") are not expected to be present inside a valid EAR. It is, however, possible
 to define them for a particular profile and include them as extensions via mechanisms described
 above.
 
@@ -237,6 +237,48 @@ let exp2 = match ear2.extensions.get_by_name("exp").unwrap() {
 };
 assert!(SystemTime::now().duration_since(UNIX_EPOCH).unwrap() < exp2);
 ```
+
+# JWT headers
+
+When signing with `sign_jwt_pem`/`sign_jwk_der`, only the `alg` header is set in the resulting
+JWT based on the the specified algorithm. If other headers need to be specified, then
+`sign_jwt_pem_with_header` and `sign_jwk_der_with_header` can be used instead; these take a
+`jwt::Header` instead of an algorithm. A new header can be created from an algorithm using
+`new_jwt_header`.
+
+```rust
+use std::collections::BTreeMap;
+use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions, new_jwt_header};
+
+const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
+6yjQCRV35J4TUY4idLgiCu6EyLqhRANCAAQbx8C533c2AKDwL/RtjVipVnnM2WRv
+5w2wZNCJrubSK0StYKJ71CikDgkhw8M90ojfRIowqpl0uLA3kW3PEZy9
+-----END PRIVATE KEY-----
+";
+
+fn main() {
+    let token = Ear{
+        profile: "test".to_string(),
+        iat: 1,
+        vid: VerifierID {
+            build: "vsts 0.0.1".to_string(),
+            developer: "https://veraison-project.org".to_string(),
+        },
+        raw_evidence: None,
+        nonce: None,
+        submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
+        extensions: Extensions::new(),
+    };
+
+    let mut header = new_jwt_header(&Algorithm::ES256).unwrap();
+    // set additional header(s)
+    header.kid = Some("key-ident".to_string());
+
+    let signed = token.sign_jwt_pem_with_header(&header, SIGNING_KEY.as_bytes()).unwrap();
+}
+```
+
 
 # Limitations
 

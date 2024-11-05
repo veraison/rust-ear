@@ -199,42 +199,66 @@ impl Ear {
     /// Encode the EAR as a JWT token, signing it with the specified PEM-encoded key
     #[allow(clippy::type_complexity)]
     pub fn sign_jwt_pem(&self, alg: Algorithm, key: &[u8]) -> Result<String, Error> {
-        let (jwt_alg, keyfunc): (
-            jwt::Algorithm,
-            fn(&[u8]) -> Result<jwt::EncodingKey, jwt::errors::Error>,
-        ) = match alg {
-            Algorithm::ES256 => (jwt::Algorithm::ES256, jwt::EncodingKey::from_ec_pem),
-            Algorithm::ES384 => (jwt::Algorithm::ES384, jwt::EncodingKey::from_ec_pem),
-            Algorithm::EdDSA => (jwt::Algorithm::EdDSA, jwt::EncodingKey::from_ed_pem),
-            Algorithm::PS256 => (jwt::Algorithm::PS256, jwt::EncodingKey::from_rsa_pem),
-            Algorithm::PS384 => (jwt::Algorithm::PS384, jwt::EncodingKey::from_rsa_pem),
-            Algorithm::PS512 => (jwt::Algorithm::PS512, jwt::EncodingKey::from_rsa_pem),
-            _ => return Err(Error::SignError(format!("algorithm {alg:?} not supported"))),
+        let header = &jwt::Header::new(alg_to_jwt_alg(&alg)?);
+        self.sign_jwt_pem_with_header(header, key)
+    }
+
+    /// Encode the EAR as a JWT token, signing it with the specified PEM-encoded key, and including
+    /// the provided headers.
+    pub fn sign_jwt_pem_with_header(
+        &self,
+        header: &jwt::Header,
+        key: &[u8],
+    ) -> Result<String, Error> {
+        let keyfunc: fn(&[u8]) -> Result<jwt::EncodingKey, jwt::errors::Error> = match header.alg {
+            jwt::Algorithm::ES256 => jwt::EncodingKey::from_ec_pem,
+            jwt::Algorithm::ES384 => jwt::EncodingKey::from_ec_pem,
+            jwt::Algorithm::EdDSA => jwt::EncodingKey::from_ed_pem,
+            jwt::Algorithm::PS256 => jwt::EncodingKey::from_rsa_pem,
+            jwt::Algorithm::PS384 => jwt::EncodingKey::from_rsa_pem,
+            jwt::Algorithm::PS512 => jwt::EncodingKey::from_rsa_pem,
+            _ => {
+                return Err(Error::SignError(format!(
+                    "algorithm {0:?} not supported",
+                    header.alg
+                )))
+            }
         };
 
         let ek = keyfunc(key).map_err(|e| Error::KeyError(e.to_string()))?;
 
-        self.sign_jwk(jwt_alg, &ek)
+        jwt::encode(header, self, &ek).map_err(|e| Error::SignError(e.to_string()))
     }
 
     /// Encode the EAR as a JWT token, signing it with the specified DER-encoded key
     pub fn sign_jwk_der(&self, alg: Algorithm, key: &[u8]) -> Result<String, Error> {
-        let (jwt_alg, ek) = match alg {
-            Algorithm::ES256 => (jwt::Algorithm::ES256, jwt::EncodingKey::from_ec_der(key)),
-            Algorithm::ES384 => (jwt::Algorithm::ES384, jwt::EncodingKey::from_ec_der(key)),
-            Algorithm::EdDSA => (jwt::Algorithm::EdDSA, jwt::EncodingKey::from_ed_der(key)),
-            Algorithm::PS256 => (jwt::Algorithm::PS256, jwt::EncodingKey::from_rsa_der(key)),
-            Algorithm::PS384 => (jwt::Algorithm::PS384, jwt::EncodingKey::from_rsa_der(key)),
-            Algorithm::PS512 => (jwt::Algorithm::PS512, jwt::EncodingKey::from_rsa_der(key)),
-            _ => return Err(Error::SignError(format!("algorithm {alg:?} not supported"))),
-        };
-
-        self.sign_jwk(jwt_alg, &ek)
+        let header = &jwt::Header::new(alg_to_jwt_alg(&alg)?);
+        self.sign_jwk_der_with_header(header, key)
     }
 
-    fn sign_jwk(&self, alg: jwt::Algorithm, key: &jwt::EncodingKey) -> Result<String, Error> {
-        let header = jwt::Header::new(alg);
-        jwt::encode(&header, self, key).map_err(|e| Error::SignError(e.to_string()))
+    /// Encode the EAR as a JWT token, signing it with the specified DER-encoded key,
+    /// including the specified header(s).
+    pub fn sign_jwk_der_with_header(
+        &self,
+        header: &jwt::Header,
+        key: &[u8],
+    ) -> Result<String, Error> {
+        let ek = match header.alg {
+            jwt::Algorithm::ES256 => jwt::EncodingKey::from_ec_der(key),
+            jwt::Algorithm::ES384 => jwt::EncodingKey::from_ec_der(key),
+            jwt::Algorithm::EdDSA => jwt::EncodingKey::from_ed_der(key),
+            jwt::Algorithm::PS256 => jwt::EncodingKey::from_rsa_der(key),
+            jwt::Algorithm::PS384 => jwt::EncodingKey::from_rsa_der(key),
+            jwt::Algorithm::PS512 => jwt::EncodingKey::from_rsa_der(key),
+            _ => {
+                return Err(Error::SignError(format!(
+                    "algorithm {:?} not supported",
+                    header.alg
+                )))
+            }
+        };
+
+        jwt::encode(header, self, &ek).map_err(|e| Error::SignError(e.to_string()))
     }
 
     /// Encode the EAR as a COSE token, signing it with the specified PEM-encoded key
@@ -511,6 +535,24 @@ impl<'de> Visitor<'de> for EarVisitor {
         ear.validate().map_err(de::Error::custom)?;
 
         Ok(ear)
+    }
+}
+
+#[inline]
+pub fn new_jwt_header(alg: &Algorithm) -> Result<jwt::Header, Error> {
+    Ok(jwt::Header::new(alg_to_jwt_alg(alg)?))
+}
+
+#[inline]
+fn alg_to_jwt_alg(alg: &Algorithm) -> Result<jwt::Algorithm, Error> {
+    match alg {
+        Algorithm::ES256 => Ok(jwt::Algorithm::ES256),
+        Algorithm::ES384 => Ok(jwt::Algorithm::ES384),
+        Algorithm::EdDSA => Ok(jwt::Algorithm::EdDSA),
+        Algorithm::PS256 => Ok(jwt::Algorithm::PS256),
+        Algorithm::PS384 => Ok(jwt::Algorithm::PS384),
+        Algorithm::PS512 => Ok(jwt::Algorithm::PS512),
+        _ => Err(Error::SignError(format!("algorithm {alg:?} not supported"))),
     }
 }
 
