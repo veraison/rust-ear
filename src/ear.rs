@@ -263,28 +263,52 @@ impl Ear {
 
     /// Encode the EAR as a COSE token, signing it with the specified PEM-encoded key
     pub fn sign_cose_pem(&self, alg: Algorithm, key: &[u8]) -> Result<Vec<u8>, Error> {
-        self.sign_cose_bytes(alg, key, KeyFormat::PEM)
+        let header = new_cose_header(&alg)?;
+        self.sign_cose_bytes_with_header(header, key, KeyFormat::PEM)
     }
 
     /// Encode the EAR as a COSE token, signing it with the specified DER-encoded key
     pub fn sign_cose_der(&self, alg: Algorithm, key: &[u8]) -> Result<Vec<u8>, Error> {
-        self.sign_cose_bytes(alg, key, KeyFormat::DER)
+        let header = new_cose_header(&alg)?;
+        self.sign_cose_bytes_with_header(header, key, KeyFormat::DER)
     }
 
-    fn sign_cose_bytes(
+    /// Encode the EAR as a COSE token with the specified header, signing it with the specified
+    /// PEM-encoded key
+    pub fn sign_cose_pem_with_header(
         &self,
-        alg: Algorithm,
+        header: cose::headers::CoseHeader,
+        key: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        self.sign_cose_bytes_with_header(header, key, KeyFormat::PEM)
+    }
+
+    /// Encode the EAR as a COSE token with the specified header, signing it with the specified
+    /// DER-encoded key
+    pub fn sign_cose_der_with_header(
+        &self,
+        header: cose::headers::CoseHeader,
+        key: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        self.sign_cose_bytes_with_header(header, key, KeyFormat::DER)
+    }
+
+    fn sign_cose_bytes_with_header(
+        &self,
+        header: cose::headers::CoseHeader,
         key: &[u8],
         key_fmt: KeyFormat,
     ) -> Result<Vec<u8>, Error> {
-        let cose_alg = alg_to_cose(&alg)?;
+        let cose_alg = header
+            .alg
+            .ok_or(Error::SignError("alg header must be set".to_string()))?;
 
         let mut cose_key = cose::keys::CoseKey::new();
         cose_key.alg(cose_alg);
         cose_key.key_ops(vec![cose::keys::KEY_OPS_SIGN]);
 
-        match alg {
-            Algorithm::ES256 | Algorithm::ES384 | Algorithm::PS512 => {
+        match cose_alg {
+            cose::algs::ES256 | cose::algs::ES384 | cose::algs::PS512 => {
                 let ec_key = match key_fmt {
                     KeyFormat::PEM => ec::EcKey::private_key_from_pem(key),
                     KeyFormat::DER => ec::EcKey::private_key_from_der(key),
@@ -320,7 +344,7 @@ impl Ear {
                 cose_key.y(y_ref.to_vec());
                 cose_key.d(ec_key.private_key().to_vec());
             }
-            Algorithm::EdDSA => {
+            cose::algs::EDDSA => {
                 cose_key.kty(cose::keys::OKP);
                 cose_key.crv(cose::keys::ED25519);
 
@@ -337,20 +361,28 @@ impl Ear {
                 cose_key.d(raw[..32].to_vec());
                 cose_key.x(raw[32..].to_vec());
             }
-            _ => return Err(Error::SignError(format!("algorithm {alg:?} not supported"))),
+            _ => {
+                return Err(Error::SignError(format!(
+                    "algorithm {cose_alg:?} not supported"
+                )))
+            }
         };
 
-        self.sign_cose(cose_alg, &cose_key)
+        self.sign_cose_with_header(header, &cose_key)
     }
 
-    fn sign_cose(&self, alg: i32, key: &cose::keys::CoseKey) -> Result<Vec<u8>, Error> {
+    fn sign_cose_with_header(
+        &self,
+        header: cose::headers::CoseHeader,
+        key: &cose::keys::CoseKey,
+    ) -> Result<Vec<u8>, Error> {
         let mut payload: Vec<u8> = Vec::new();
         ciborium::ser::into_writer(self, &mut payload)
             .map_err(|e| Error::SignError(e.to_string()))?;
 
         let mut sign1 = CoseMessage::new_sign();
         sign1.payload(payload);
-        sign1.header.alg(alg, true, false);
+        sign1.add_header(header);
 
         if let Some(a) = key.alg {
             if a != sign1.header.alg.unwrap() {
@@ -541,6 +573,15 @@ impl<'de> Visitor<'de> for EarVisitor {
 #[inline]
 pub fn new_jwt_header(alg: &Algorithm) -> Result<jwt::Header, Error> {
     Ok(jwt::Header::new(alg_to_jwt_alg(alg)?))
+}
+
+#[inline]
+pub fn new_cose_header(alg: &Algorithm) -> Result<cose::headers::CoseHeader, Error> {
+    let cose_alg = alg_to_cose(alg)?;
+    let mut header = cose::headers::CoseHeader::new();
+    header.alg(cose_alg, true, false);
+
+    Ok(header)
 }
 
 #[inline]
