@@ -102,9 +102,8 @@ impl Serialize for Appraisal {
                 map.serialize_entry("ear.trustworthiness-vector", &self.trust_vector)?;
             }
 
-            match &self.policy_id {
-                Some(pid) => map.serialize_entry("ear.appraisal-policy-id", pid.as_str())?,
-                None => (),
+            if let Some(pid) = &self.policy_id {
+                map.serialize_entry("ear.appraisal-policy-id", pid.as_str())?
             }
 
             if !self.annotated_evidence.is_empty() {
@@ -124,9 +123,8 @@ impl Serialize for Appraisal {
                 map.serialize_entry(&1001, &self.trust_vector)?;
             }
 
-            match &self.policy_id {
-                Some(pid) => map.serialize_entry(&1003, pid.as_str())?,
-                None => (),
+            if let Some(pid) = &self.policy_id {
+                map.serialize_entry(&1003, pid.as_str())?
             }
 
             if !self.annotated_evidence.is_empty() {

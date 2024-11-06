@@ -464,14 +464,12 @@ impl Serialize for Ear {
             map.serialize_entry("ear.verifier-id", &self.vid)?;
             map.serialize_entry("submods", &self.submods)?;
 
-            match &self.nonce {
-                Some(n) => map.serialize_entry("eat_nonce", &n)?,
-                None => (),
+            if let Some(n) = &self.nonce {
+                map.serialize_entry("eat_nonce", &n)?
             }
 
-            match &self.raw_evidence {
-                Some(r) => map.serialize_entry("ear.raw-evidence", &r)?,
-                None => (),
+            if let Some(r) = &self.raw_evidence {
+                map.serialize_entry("ear.raw-evidence", &r)?
             }
 
             self.extensions.serialize_to_map_by_name(&mut map)?;
@@ -482,14 +480,12 @@ impl Serialize for Ear {
             map.serialize_entry(&1004, &self.vid)?;
             map.serialize_entry(&266, &self.submods)?;
 
-            match &self.nonce {
-                Some(n) => map.serialize_entry(&10, &n)?,
-                None => (),
+            if let Some(n) = &self.nonce {
+                map.serialize_entry(&10, &n)?
             }
 
-            match &self.raw_evidence {
-                Some(r) => map.serialize_entry(&1002, &r)?,
-                None => (),
+            if let Some(r) = &self.raw_evidence {
+                map.serialize_entry(&1002, &r)?
             }
 
             self.extensions.serialize_to_map_by_key(&mut map)?;
