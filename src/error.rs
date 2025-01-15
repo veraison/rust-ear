@@ -38,4 +38,7 @@ pub enum Error {
     // error while registering or accessing profiles
     #[error("profile error: {0}")]
     ProfileError(String),
+    // error during value conversion
+    #[error("value error: {0}")]
+    ValueError(String),
 }

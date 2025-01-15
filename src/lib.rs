@@ -75,7 +75,7 @@
 //! [`Appraisal`]s. An extension is an additional field definition. Extensions can be defined by
 //! registering them with the `extensions` field of the corresponding struct. When registering an
 //! extension, you must provide a string name (used in JSON), an integer key (used in CBOR), and an
-//! [`ExtensionKind`] indicating which [`ExtensionValue`]s are valid.
+//! [`RawValueKind`] indicating which [`RawValue`]s are valid.
 //!
 //! ## Registering individual extensions
 //!
@@ -83,36 +83,36 @@
 //! they have been registered, their values can be set and queried
 //!
 //! ```
-//! use ear::{Ear, Appraisal, ExtensionKind, ExtensionValue};
+//! use ear::{Ear, Appraisal, RawValueKind, RawValue};
 //!
 //! let mut ear = Ear::new();
-//! ear.extensions.register("ext.company-name", -65537, ExtensionKind::String).unwrap();
+//! ear.extensions.register("ext.company-name", -65537, RawValueKind::String).unwrap();
 //!
 //! let mut appraisal = Appraisal::new();
 //! // extensions for Ear's and Appraisal's have their own namespaces, so it is
 //! // to use the same key in both.
-//! appraisal.extensions.register("ext.timestamp", -65537, ExtensionKind::Integer).unwrap();
+//! appraisal.extensions.register("ext.timestamp", -65537, RawValueKind::Integer).unwrap();
 //!
 //! ear.extensions.set_by_name(
 //!     "ext.company-name",
-//!     ExtensionValue::String("Acme Inc.".to_string()),
+//!     RawValue::String("Acme Inc.".to_string()),
 //! ).unwrap();
 //!
 //! appraisal.extensions.set_by_key(
 //!     -65537,
-//!     ExtensionValue::Integer(1723534859),
+//!     RawValue::Integer(1723534859),
 //! ).unwrap();
 //!
 //! ear.submods.insert("road-runner-trap".to_string(), appraisal);
 //!
 //! assert_eq!(
 //!    ear.extensions.get_by_key(&-65537).unwrap(),
-//!    ExtensionValue::String("Acme Inc.".to_string()),
+//!    RawValue::String("Acme Inc.".to_string()),
 //! );
 //!
 //! assert_eq!(
 //!    ear.submods["road-runner-trap"].extensions.get_by_name("ext.timestamp").unwrap(),
-//!    ExtensionValue::Integer(1723534859),
+//!    RawValue::Integer(1723534859),
 //! );
 //! ```
 //!
@@ -126,15 +126,15 @@
 //! registered, and can then be retrieved by its `id` when creating a new [`Ear`] or [`Appraisal`]
 //!
 //! ```
-//! use ear::{Ear, Appraisal, ExtensionKind, ExtensionValue, Profile, register_profile};
+//! use ear::{Ear, Appraisal, RawValueKind, RawValue, Profile, register_profile};
 //!
 //! fn init_profile() {
 //!     let mut profile = Profile::new("tag:github.com,2023:veraison/ear#acme-profile");
 //!
 //!     profile.register_ear_extension(
-//!         "ext.company-name", -65537, ExtensionKind::String).unwrap();
+//!         "ext.company-name", -65537, RawValueKind::String).unwrap();
 //!     profile.register_appraisal_extension(
-//!         "ext.timestamp", -65537, ExtensionKind::Integer).unwrap();
+//!         "ext.timestamp", -65537, RawValueKind::Integer).unwrap();
 //!
 //!     register_profile(&profile);
 //! }
@@ -150,25 +150,25 @@
 //!
 //!     ear.extensions.set_by_name(
 //!         "ext.company-name",
-//!         ExtensionValue::String("Acme Inc.".to_string()),
+//!         RawValue::String("Acme Inc.".to_string()),
 //!     ).unwrap();
 //!
 //!     appraisal.extensions.set_by_key(
 //!         -65537,
-//!         ExtensionValue::Integer(1723534859),
+//!         RawValue::Integer(1723534859),
 //!     ).unwrap();
 //!
 //!     ear.submods.insert("road-runner-trap".to_string(), appraisal);
 //!
 //!     assert_eq!(
 //!        ear.extensions.get_by_key(&-65537).unwrap(),
-//!        ExtensionValue::String("Acme Inc.".to_string()),
+//!        RawValue::String("Acme Inc.".to_string()),
 //!     );
 //!
 //!     assert_eq!(
 //!        ear.submods["road-runner-trap"]
 //!             .extensions.get_by_name("ext.timestamp").unwrap(),
-//!        ExtensionValue::Integer(1723534859),
+//!        RawValue::Integer(1723534859),
 //!     );
 //! }
 //!
@@ -188,7 +188,7 @@
 //! inside an EAR.
 //!
 //! ```
-//! use ear::{Ear, Algorithm, Appraisal, ExtensionKind, ExtensionValue};
+//! use ear::{Ear, Algorithm, Appraisal, RawValueKind, RawValue};
 //! use std::time::{SystemTime, Duration, UNIX_EPOCH};
 //!
 //! const VERIF_KEY: &str = r#"
@@ -212,13 +212,13 @@
 //! ear.vid.build = "vsts 0.0.1".to_string();
 //! ear.vid.developer = "https://veraison-project.org".to_string();
 //! ear.submods.insert("road-runner-trap".to_string(), Appraisal::new());
-//! ear.extensions.register("exp", 4, ExtensionKind::Integer).unwrap();
+//! ear.extensions.register("exp", 4, RawValueKind::Integer).unwrap();
 //!
 //! // expire 10 days from now
 //! let exp = SystemTime::now().checked_add(Duration::from_secs(60*60*24*10)).unwrap()
 //!                         .duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 //!
-//! ear.extensions.set_by_name("exp", ExtensionValue::Integer(exp)).unwrap();
+//! ear.extensions.set_by_name("exp", RawValue::Integer(exp)).unwrap();
 //!
 //!
 //! let signed = ear
@@ -228,11 +228,11 @@
 //! let mut ear2 =
 //!     Ear::from_jwt_jwk(signed.as_str(), Algorithm::ES256, VERIF_KEY.as_bytes()).unwrap();
 //!
-//! ear2.extensions.register("exp", 4, ExtensionKind::Integer).unwrap();
+//! ear2.extensions.register("exp", 4, RawValueKind::Integer).unwrap();
 //!
 //! // Verify the token has not expired.
 //! let exp2 = match ear2.extensions.get_by_name("exp").unwrap() {
-//!     ExtensionValue::Integer(v) => Duration::from_secs(v as u64),
+//!     RawValue::Integer(v) => Duration::from_secs(v as u64),
 //!     _ => panic!(),
 //! };
 //! assert!(SystemTime::now().duration_since(UNIX_EPOCH).unwrap() < exp2);
@@ -322,14 +322,13 @@ pub use self::ear::Ear;
 pub use self::error::Error;
 pub use self::extension::get_profile;
 pub use self::extension::register_profile;
-pub use self::extension::ExtensionKind;
-pub use self::extension::ExtensionValue;
 pub use self::extension::Extensions;
 pub use self::extension::Profile;
 pub use self::id::VerifierID;
 pub use self::key::KeyAttestation;
 pub use self::nonce::Nonce;
 pub use self::raw::RawValue;
+pub use self::raw::RawValueKind;
 pub use self::trust::claim::TrustClaim;
 pub use self::trust::tier::TrustTier;
 pub use self::trust::vector::TrustVector;

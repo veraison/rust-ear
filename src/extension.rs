@@ -1,222 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::{BTreeMap, HashSet};
-use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
 use lazy_static::lazy_static;
-use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
+use serde::de::Error as _;
 
 use crate::appraisal::Appraisal;
-use crate::base64::Bytes;
 use crate::ear::Ear;
 use crate::error::Error;
-
-/// specifies the type of an ExtensionValue (without requiring a concrete value)
-#[derive(Clone, Debug, PartialEq)]
-pub enum ExtensionKind {
-    Unset,
-    Bool,
-    String,
-    Bytes,
-    Integer,
-    Float,
-    Array,
-    Map,
-}
-
-/// contains the value of an extension
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub enum ExtensionValue {
-    Unset,
-    Bool(bool),
-    String(String),
-    Bytes(Bytes),
-    Integer(i64),
-    Float(f64),
-    Array(Vec<ExtensionValue>),
-    Map(Vec<(ExtensionValue, ExtensionValue)>),
-}
-
-impl ExtensionValue {
-    pub fn kind(&self) -> ExtensionKind {
-        match self {
-            ExtensionValue::Unset => ExtensionKind::Unset,
-            ExtensionValue::Bool(_) => ExtensionKind::Bool,
-            ExtensionValue::String(_) => ExtensionKind::String,
-            ExtensionValue::Bytes(_) => ExtensionKind::Bytes,
-            ExtensionValue::Integer(_) => ExtensionKind::Integer,
-            ExtensionValue::Float(_) => ExtensionKind::Float,
-            ExtensionValue::Array(_) => ExtensionKind::Array,
-            ExtensionValue::Map(_) => ExtensionKind::Map,
-        }
-    }
-
-    pub fn is(&self, kind: &ExtensionKind) -> bool {
-        self.kind() == *kind
-    }
-
-    pub fn can_convert(&self, kind: &ExtensionKind) -> bool {
-        matches!(
-            (self.kind(), kind),
-            (ExtensionKind::String, ExtensionKind::Bytes)
-                | (ExtensionKind::Bytes, ExtensionKind::String)
-        )
-    }
-
-    pub fn convert(&self, kind: &ExtensionKind) -> Result<ExtensionValue, Error> {
-        match kind {
-            ExtensionKind::Bytes => match self {
-                ExtensionValue::String(s) => Ok(ExtensionValue::Bytes(Bytes::try_from(s as &str)?)),
-                other => Err(Error::ExtensionError(format!(
-                    "cannot convert into {kind:?} from {other:?}",
-                ))),
-            },
-            _ => Err(Error::ExtensionError(format!(
-                "cannot convert into {kind:?} from any other variant",
-            ))),
-        }
-    }
-}
-
-impl serde::Serialize for ExtensionValue {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            ExtensionValue::Unset => serializer.serialize_none(),
-            ExtensionValue::Bool(v) => serializer.serialize_bool(*v),
-            ExtensionValue::String(v) => serializer.serialize_str(v),
-            ExtensionValue::Bytes(v) => v.serialize(serializer),
-            ExtensionValue::Integer(v) => serializer.serialize_i64(*v),
-            ExtensionValue::Float(v) => serializer.serialize_f64(*v),
-            ExtensionValue::Array(v) => v.serialize(serializer),
-            ExtensionValue::Map(v) => v.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for ExtensionValue {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<ExtensionValue, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ValueVisitor;
-
-        impl<'de> Visitor<'de> for ValueVisitor {
-            type Value = ExtensionValue;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("any valid JSON or CBOR value")
-            }
-
-            #[inline]
-            fn visit_bool<E>(self, value: bool) -> Result<ExtensionValue, E> {
-                Ok(ExtensionValue::Bool(value))
-            }
-
-            #[inline]
-            fn visit_i64<E>(self, value: i64) -> Result<ExtensionValue, E> {
-                Ok(ExtensionValue::Integer(value))
-            }
-
-            #[inline]
-            fn visit_u64<E>(self, value: u64) -> Result<ExtensionValue, E>
-            where
-                E: serde::de::Error,
-            {
-                let v = i64::try_from(value).map_err(E::custom)?;
-                Ok(ExtensionValue::Integer(v))
-            }
-
-            #[inline]
-            fn visit_f64<E>(self, value: f64) -> Result<ExtensionValue, E> {
-                Ok(ExtensionValue::Float(value))
-            }
-
-            #[inline]
-            fn visit_str<E>(self, value: &str) -> Result<ExtensionValue, E>
-            where
-                E: serde::de::Error,
-            {
-                self.visit_string(String::from(value))
-            }
-
-            #[inline]
-            fn visit_string<E>(self, value: String) -> Result<ExtensionValue, E> {
-                Ok(ExtensionValue::String(value))
-            }
-
-            #[inline]
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E> {
-                Ok(ExtensionValue::Bytes(Bytes::from(v)))
-            }
-
-            #[inline]
-            fn visit_none<E>(self) -> Result<ExtensionValue, E> {
-                Ok(ExtensionValue::Unset)
-            }
-
-            #[inline]
-            fn visit_some<D>(self, deserializer: D) -> Result<ExtensionValue, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                serde::de::Deserialize::deserialize(deserializer)
-            }
-
-            #[inline]
-            fn visit_unit<E>(self) -> Result<ExtensionValue, E> {
-                Ok(ExtensionValue::Unset)
-            }
-
-            #[inline]
-            fn visit_seq<V>(self, mut visitor: V) -> Result<Self::Value, V::Error>
-            where
-                V: SeqAccess<'de>,
-            {
-                let mut vec = Vec::new();
-
-                while let Some(elem) = visitor.next_element()? {
-                    vec.push(elem);
-                }
-
-                Ok(ExtensionValue::Array(vec))
-            }
-
-            fn visit_map<V>(self, mut visitor: V) -> Result<ExtensionValue, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                let mut ret = Vec::new();
-
-                while let Some((key, val)) =
-                    visitor.next_entry::<ExtensionValue, ExtensionValue>()?
-                {
-                    ret.push((key, val));
-                }
-
-                Ok(ExtensionValue::Map(ret))
-            }
-        }
-
-        deserializer.deserialize_any(ValueVisitor)
-    }
-}
+use crate::raw::{RawValue, RawValueKind};
 
 #[derive(Debug, Clone)]
 struct ExtensionEntry {
-    pub kind: ExtensionKind,
-    pub value: ExtensionValue,
+    pub kind: RawValueKind,
+    pub value: RawValue,
 }
 
 impl ExtensionEntry {
-    pub fn new(kind: ExtensionKind) -> ExtensionEntry {
+    pub fn new(kind: RawValueKind) -> ExtensionEntry {
         ExtensionEntry {
             kind,
-            value: ExtensionValue::Unset,
+            value: RawValue::Null,
         }
     }
 }
@@ -231,7 +36,7 @@ enum CollectedKey {
 pub struct Extensions {
     by_key: BTreeMap<i32, Arc<RwLock<ExtensionEntry>>>,
     by_name: BTreeMap<String, Arc<RwLock<ExtensionEntry>>>,
-    collected: BTreeMap<CollectedKey, ExtensionValue>,
+    collected: BTreeMap<CollectedKey, RawValue>,
 }
 
 impl Default for Extensions {
@@ -249,7 +54,7 @@ impl<'de> Extensions {
         }
     }
 
-    pub fn register(&mut self, name: &str, key: i32, kind: ExtensionKind) -> Result<(), Error> {
+    pub fn register(&mut self, name: &str, key: i32, kind: RawValueKind) -> Result<(), Error> {
         if self.by_name.contains_key(name) {
             return Err(Error::ExtensionError(
                 format!("name {name} already registered").to_string(),
@@ -314,33 +119,33 @@ impl<'de> Extensions {
         self.by_name.contains_key(name)
     }
 
-    pub fn get_by_key(&self, key: &i32) -> Option<ExtensionValue> {
+    pub fn get_by_key(&self, key: &i32) -> Option<RawValue> {
         self.by_key
             .get(key)
             .map(|entry| entry.read().unwrap().value.clone())
     }
 
-    pub fn get_by_name(&self, name: &str) -> Option<ExtensionValue> {
+    pub fn get_by_name(&self, name: &str) -> Option<RawValue> {
         self.by_name
             .get(name)
             .map(|entry| entry.read().unwrap().value.clone())
     }
 
-    pub fn get_kind_by_key(&self, key: &i32) -> ExtensionKind {
+    pub fn get_kind_by_key(&self, key: &i32) -> RawValueKind {
         match self.by_key.get(key) {
             Some(entry) => entry.read().unwrap().kind.clone(),
-            None => ExtensionKind::Unset,
+            None => RawValueKind::Null,
         }
     }
 
-    pub fn get_kind_by_name(&self, name: &str) -> ExtensionKind {
+    pub fn get_kind_by_name(&self, name: &str) -> RawValueKind {
         match self.by_name.get(name) {
             Some(entry) => entry.read().unwrap().kind.clone(),
-            None => ExtensionKind::Unset,
+            None => RawValueKind::Null,
         }
     }
 
-    pub fn set_by_key(&mut self, key: i32, value: ExtensionValue) -> Result<(), Error> {
+    pub fn set_by_key(&mut self, key: i32, value: RawValue) -> Result<(), Error> {
         let entry = self.by_key.get(&key).ok_or(Error::ExtensionError(
             format!("{key} not registered").to_string(),
         ))?;
@@ -358,7 +163,7 @@ impl<'de> Extensions {
         Ok(())
     }
 
-    pub fn set_by_name(&mut self, name: &str, value: ExtensionValue) -> Result<(), Error> {
+    pub fn set_by_name(&mut self, name: &str, value: RawValue) -> Result<(), Error> {
         let entry = self.by_name.get_mut(name).ok_or(Error::ExtensionError(
             format!("{name} not registered").to_string(),
         ))?;
@@ -387,25 +192,12 @@ impl<'de> Extensions {
         if !self.have_name(name) {
             self.collected.insert(
                 CollectedKey::Name(name.to_string()),
-                map.next_value::<ExtensionValue>()?,
+                map.next_value::<RawValue>()?,
             );
             return Ok(());
         }
 
-        let value = match self.get_kind_by_name(name) {
-            ExtensionKind::Unset => Err(A::Error::custom("invalid extension".to_string())),
-            ExtensionKind::Bool => Ok(ExtensionValue::Bool(map.next_value::<bool>()?)),
-            ExtensionKind::String => Ok(ExtensionValue::String(map.next_value::<String>()?)),
-            ExtensionKind::Bytes => Ok(ExtensionValue::Bytes(map.next_value::<Bytes>()?)),
-            ExtensionKind::Integer => Ok(ExtensionValue::Integer(map.next_value::<i64>()?)),
-            ExtensionKind::Float => Ok(ExtensionValue::Float(map.next_value::<f64>()?)),
-            ExtensionKind::Array => Ok(ExtensionValue::Array(
-                map.next_value::<Vec<ExtensionValue>>()?,
-            )),
-            ExtensionKind::Map => Ok(ExtensionValue::Map(
-                map.next_value::<Vec<(ExtensionValue, ExtensionValue)>>()?,
-            )),
-        }?;
+        let value = map.next_value::<RawValue>()?;
 
         self.set_by_name(name, value).map_err(A::Error::custom)?;
 
@@ -418,24 +210,11 @@ impl<'de> Extensions {
     {
         if !self.have_key(&key) {
             self.collected
-                .insert(CollectedKey::Key(key), map.next_value::<ExtensionValue>()?);
+                .insert(CollectedKey::Key(key), map.next_value::<RawValue>()?);
             return Ok(());
         }
 
-        let value = match self.get_kind_by_key(&key) {
-            ExtensionKind::Unset => Err(A::Error::custom("invalid extension".to_string())),
-            ExtensionKind::Bool => Ok(ExtensionValue::Bool(map.next_value::<bool>()?)),
-            ExtensionKind::String => Ok(ExtensionValue::String(map.next_value::<String>()?)),
-            ExtensionKind::Bytes => Ok(ExtensionValue::Bytes(map.next_value::<Bytes>()?)),
-            ExtensionKind::Integer => Ok(ExtensionValue::Integer(map.next_value::<i64>()?)),
-            ExtensionKind::Float => Ok(ExtensionValue::Float(map.next_value::<f64>()?)),
-            ExtensionKind::Array => Ok(ExtensionValue::Array(
-                map.next_value::<Vec<ExtensionValue>>()?,
-            )),
-            ExtensionKind::Map => Ok(ExtensionValue::Map(
-                map.next_value::<Vec<(ExtensionValue, ExtensionValue)>>()?,
-            )),
-        }?;
+        let value = map.next_value::<RawValue>()?;
 
         self.set_by_key(key, value).map_err(A::Error::custom)?;
 
@@ -447,7 +226,7 @@ impl<'de> Extensions {
         M: serde::ser::SerializeMap,
     {
         for (name, val) in &self.by_name {
-            if val.read().unwrap().value.is(&ExtensionKind::Unset) {
+            if val.read().unwrap().value.is(&RawValueKind::Null) {
                 continue;
             }
 
@@ -462,7 +241,7 @@ impl<'de> Extensions {
         M: serde::ser::SerializeMap,
     {
         for (key, val) in &self.by_key {
-            if val.read().unwrap().value.is(&ExtensionKind::Unset) {
+            if val.read().unwrap().value.is(&RawValueKind::Null) {
                 continue;
             }
 
@@ -505,7 +284,7 @@ impl PartialEq for Extensions {
 struct RegisterEntry {
     pub name: String,
     pub key: i32,
-    pub kind: ExtensionKind,
+    pub kind: RawValueKind,
 }
 
 #[derive(Debug, Clone)]
@@ -524,7 +303,7 @@ impl Register {
         }
     }
 
-    pub fn register(&mut self, name: &str, key: i32, kind: ExtensionKind) -> Result<(), Error> {
+    pub fn register(&mut self, name: &str, key: i32, kind: RawValueKind) -> Result<(), Error> {
         match self.names.get(name) {
             Some(_) => Err(Error::ExtensionError(
                 format!("name {name} already registered").to_string(),
@@ -578,7 +357,7 @@ impl Profile {
         &mut self,
         name: &str,
         key: i32,
-        kind: ExtensionKind,
+        kind: RawValueKind,
     ) -> Result<(), Error> {
         self.ear.register(name, key, kind)
     }
@@ -587,7 +366,7 @@ impl Profile {
         &mut self,
         name: &str,
         key: i32,
-        kind: ExtensionKind,
+        kind: RawValueKind,
     ) -> Result<(), Error> {
         self.appraisal.register(name, key, kind)
     }
@@ -657,6 +436,7 @@ pub fn get_profile(id: &str) -> Option<Profile> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::base64::Bytes;
     use crate::error::Error;
 
     use std::str;
@@ -668,49 +448,49 @@ mod test {
     #[test]
     fn crud() {
         let mut exts = Extensions::new();
-        exts.register("foo", 1, ExtensionKind::String).unwrap();
+        exts.register("foo", 1, RawValueKind::String).unwrap();
 
-        let res = exts.register("foo", 2, ExtensionKind::String);
+        let res = exts.register("foo", 2, RawValueKind::String);
         assert!(matches!(res, Err(Error::ExtensionError(t))
                 if t == "name foo already registered"));
 
-        let res = exts.register("bad", 1, ExtensionKind::String);
+        let res = exts.register("bad", 1, RawValueKind::String);
         assert!(matches!(res, Err(Error::ExtensionError(t))
                 if t == "key 1 already registered"));
 
-        assert_eq!(exts.get_kind_by_key(&1), ExtensionKind::String);
-        assert_eq!(exts.get_kind_by_name("foo"), ExtensionKind::String);
+        assert_eq!(exts.get_kind_by_key(&1), RawValueKind::String);
+        assert_eq!(exts.get_kind_by_name("foo"), RawValueKind::String);
 
         assert!(exts.have_name("foo"));
         assert!(exts.have_key(&1));
         assert!(!exts.have_name("bad"));
         assert!(!exts.have_key(&-1));
 
-        exts.set_by_key(1, ExtensionValue::String("bar".to_string()))
+        exts.set_by_key(1, RawValue::String("bar".to_string()))
             .unwrap();
         match exts.get_by_name("foo").unwrap() {
-            ExtensionValue::String(s) => assert_eq!(s, "bar"),
+            RawValue::String(s) => assert_eq!(s, "bar"),
             v => panic!("unexpected value: {v:?}"),
         }
 
-        exts.set_by_name("foo", ExtensionValue::String("buzz".to_string()))
+        exts.set_by_name("foo", RawValue::String("buzz".to_string()))
             .unwrap();
         match exts.get_by_key(&1).unwrap() {
-            ExtensionValue::String(s) => assert_eq!(s, "buzz"),
+            RawValue::String(s) => assert_eq!(s, "buzz"),
             v => panic!("unexpected value: {v:?}"),
         }
 
-        let res = exts.set_by_name("bad", ExtensionValue::String("bar".to_string()));
+        let res = exts.set_by_name("bad", RawValue::String("bar".to_string()));
         assert!(matches!(res, Err(Error::ExtensionError(t)) if t == "bad not registered"));
 
-        let res = exts.set_by_key(-1, ExtensionValue::String("bar".to_string()));
+        let res = exts.set_by_key(-1, RawValue::String("bar".to_string()));
         assert!(matches!(res, Err(Error::ExtensionError(t)) if t == "-1 not registered"));
 
-        let res = exts.set_by_name("foo", ExtensionValue::Integer(42));
+        let res = exts.set_by_name("foo", RawValue::Integer(42));
         assert!(matches!(res, Err(Error::ExtensionError(t))
                 if t == "kind mismatch: value is Integer, but want String"));
 
-        let res = exts.set_by_key(1, ExtensionValue::Bool(true));
+        let res = exts.set_by_key(1, RawValue::Bool(true));
         assert!(matches!(res, Err(Error::ExtensionError(t))
                 if t == "kind mismatch: value is Bool, but want String"));
     }
@@ -718,8 +498,8 @@ mod test {
     #[test]
     fn serde() {
         let mut exts = Extensions::new();
-        exts.register("foo", 1, ExtensionKind::String).unwrap();
-        exts.set_by_name("foo", ExtensionValue::String("bar".to_string()))
+        exts.register("foo", 1, RawValueKind::String).unwrap();
+        exts.set_by_name("foo", RawValue::String("bar".to_string()))
             .unwrap();
 
         let mut v = Vec::new();
@@ -736,10 +516,10 @@ mod test {
 
     #[test]
     fn value_convert() {
-        let v = ExtensionValue::String("3q2-7w".to_string());
-        let res = v.convert(&ExtensionKind::Bytes).unwrap();
+        let v = RawValue::String("3q2-7w".to_string());
+        let res = v.convert(&RawValueKind::Bytes).unwrap();
 
-        if let ExtensionValue::Bytes(bs) = res {
+        if let RawValue::Bytes(bs) = res {
             let expected: [u8; 4] = [0xde, 0xad, 0xbe, 0xef];
             assert_eq!(bs, Bytes::from(&expected[..]));
         } else {
@@ -750,13 +530,13 @@ mod test {
     #[test]
     fn test_send() {
         let mut exts = Extensions::new();
-        exts.register("foo", 1, ExtensionKind::String).unwrap();
-        exts.set_by_name("foo", ExtensionValue::String("test".to_string()))
+        exts.register("foo", 1, RawValueKind::String).unwrap();
+        exts.set_by_name("foo", RawValue::String("test".to_string()))
             .unwrap();
 
         let handle = thread::spawn(move || {
             let val = match exts.get_by_name("foo").unwrap() {
-                ExtensionValue::String(v) => v,
+                RawValue::String(v) => v,
                 _ => panic!(),
             };
 
