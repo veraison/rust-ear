@@ -123,7 +123,7 @@ impl<'de> Deserialize<'de> for OneNonce {
 
 struct OneNonceVisitor;
 
-impl<'de> Visitor<'de> for OneNonceVisitor {
+impl Visitor<'_> for OneNonceVisitor {
     type Value = OneNonce;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
