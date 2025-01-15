@@ -609,6 +609,7 @@ fn alg_to_cose(alg: &Algorithm) -> Result<i32, Error> {
 mod test {
     use super::*;
     use crate::extension::*;
+    use crate::raw::{RawValue, RawValueKind};
     use ciborium::{de::from_reader, ser::into_writer};
 
     const EAR_STRING: &str = r#"
@@ -805,20 +806,20 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     fn serde_extensions() {
         let mut profile = Profile::new("tag:github.com,2023:veraison/ear");
         profile
-            .register_ear_extension("ext1", -1, ExtensionKind::String)
+            .register_ear_extension("ext1", -1, RawValueKind::String)
             .unwrap();
         profile
-            .register_ear_extension("ext2", -2, ExtensionKind::Integer)
+            .register_ear_extension("ext2", -2, RawValueKind::Integer)
             .unwrap();
         profile
-            .register_appraisal_extension("ext3", -1, ExtensionKind::Bytes)
+            .register_appraisal_extension("ext3", -1, RawValueKind::Bytes)
             .unwrap();
         register_profile(&profile).unwrap();
 
         let ear = serde_json::from_str::<Ear>(EAR_WITH_EXTENSIONS_STRING).unwrap();
 
         let v1 = ear.extensions.get_by_name("ext1").unwrap();
-        assert_eq!(v1, ExtensionValue::String("foo".to_string()));
+        assert_eq!(v1, RawValue::String("foo".to_string()));
 
         let text = serde_json::to_string(&ear).unwrap();
         assert_eq!(

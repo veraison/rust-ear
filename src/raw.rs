@@ -10,19 +10,76 @@ use serde::ser::{Serialize, Serializer};
 use serde::ser::{SerializeMap as _, SerializeSeq as _, SerializeTupleVariant as _};
 
 use crate::base64::Bytes;
+use crate::error::Error;
 
 /// deserialized raw JSON object or CBOR map
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum RawValue {
     Null,
     Integer(i64),
     Bytes(Bytes),
     Float(f64),
-    Text(String),
+    String(String),
     Bool(bool),
     Array(Vec<RawValue>),
     Map(Vec<(RawValue, RawValue)>),
     Tagged(u64, Box<RawValue>),
+}
+
+/// specifies the type of a RawValue (without requiring a concrete value)
+#[derive(Clone, Debug, PartialEq)]
+pub enum RawValueKind {
+    Null,
+    Bool,
+    String,
+    Bytes,
+    Integer,
+    Float,
+    Array,
+    Map,
+    Tagged,
+}
+
+impl RawValue {
+    pub fn kind(&self) -> RawValueKind {
+        match self {
+            RawValue::Null => RawValueKind::Null,
+            RawValue::Bool(_) => RawValueKind::Bool,
+            RawValue::String(_) => RawValueKind::String,
+            RawValue::Bytes(_) => RawValueKind::Bytes,
+            RawValue::Integer(_) => RawValueKind::Integer,
+            RawValue::Float(_) => RawValueKind::Float,
+            RawValue::Array(_) => RawValueKind::Array,
+            RawValue::Map(_) => RawValueKind::Map,
+            RawValue::Tagged(_, _) => RawValueKind::Tagged,
+        }
+    }
+
+    pub fn is(&self, kind: &RawValueKind) -> bool {
+        self.kind() == *kind
+    }
+
+    pub fn can_convert(&self, kind: &RawValueKind) -> bool {
+        matches!(
+            (self.kind(), kind),
+            (RawValueKind::String, RawValueKind::Bytes)
+                | (RawValueKind::Bytes, RawValueKind::String)
+        )
+    }
+
+    pub fn convert(&self, kind: &RawValueKind) -> Result<RawValue, Error> {
+        match kind {
+            RawValueKind::Bytes => match self {
+                RawValue::String(s) => Ok(RawValue::Bytes(Bytes::try_from(s as &str)?)),
+                other => Err(Error::ValueError(format!(
+                    "cannot convert into {kind:?} from {other:?}",
+                ))),
+            },
+            _ => Err(Error::ValueError(format!(
+                "cannot convert into {kind:?} from any other variant",
+            ))),
+        }
+    }
 }
 
 impl Serialize for RawValue {
@@ -35,7 +92,7 @@ impl Serialize for RawValue {
             Self::Integer(i) => serializer.serialize_i64(*i),
             Self::Bytes(b) => b.serialize(serializer),
             Self::Float(f) => serializer.serialize_f64(*f),
-            Self::Text(s) => serializer.serialize_str(s),
+            Self::String(s) => serializer.serialize_str(s),
             Self::Bool(b) => serializer.serialize_bool(*b),
             Self::Array(vs) => {
                 let mut seq = serializer.serialize_seq(Some(vs.len()))?;
@@ -136,7 +193,7 @@ impl<'de> Visitor<'de> for RawValueVisitor {
     }
 
     fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-        Ok(RawValue::Text(v.to_string()))
+        Ok(RawValue::String(v.to_string()))
     }
 
     fn visit_bytes<E: de::Error>(self, v: &[u8]) -> Result<Self::Value, E> {
@@ -222,7 +279,7 @@ mod test {
         assert_eq!(r#""3q2-7w""#, val);
 
         let rv2: RawValue = serde_json::from_str(&val).unwrap();
-        assert_eq!(rv2, RawValue::Text("3q2-7w".to_string()));
+        assert_eq!(rv2, RawValue::String("3q2-7w".to_string()));
 
         let mut buf: Vec<u8> = Vec::new();
         into_writer(&rv, &mut buf).unwrap();
@@ -239,11 +296,11 @@ mod test {
 
         let rv = RawValue::Map(vec![
             (
-                RawValue::Text("field one".to_string()),
+                RawValue::String("field one".to_string()),
                 RawValue::Float(7.0),
             ),
             (
-                RawValue::Text("field two".to_string()),
+                RawValue::String("field two".to_string()),
                 RawValue::Bool(true),
             ),
         ]);
@@ -274,7 +331,7 @@ mod test {
         assert_eq!(rv2, rv);
 
         let rv = RawValue::Array(vec![
-            RawValue::Text("foo".to_string()),
+            RawValue::String("foo".to_string()),
             RawValue::Integer(-1337),
         ]);
 
@@ -299,13 +356,13 @@ mod test {
         let rv2: RawValue = from_reader(buf.as_slice()).unwrap();
         assert_eq!(rv2, rv);
 
-        let rv = RawValue::Tagged(1, Box::new(RawValue::Text("foo".to_string())));
+        let rv = RawValue::Tagged(1, Box::new(RawValue::String("foo".to_string())));
 
         let val = serde_json::to_string(&rv).unwrap();
         assert_eq!(r#""foo""#, val);
 
         let rv2: RawValue = serde_json::from_str(&val).unwrap();
-        assert_eq!(rv2, RawValue::Text("foo".to_string())); // tag stripped
+        assert_eq!(rv2, RawValue::String("foo".to_string())); // tag stripped
 
         let mut buf: Vec<u8> = Vec::new();
         into_writer(&rv, &mut buf).unwrap();
