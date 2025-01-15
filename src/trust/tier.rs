@@ -53,7 +53,7 @@ impl<'de> Deserialize<'de> for TrustTier {
 
 struct TrustTierVisitor;
 
-impl<'de> Visitor<'de> for TrustTierVisitor {
+impl Visitor<'_> for TrustTierVisitor {
     type Value = TrustTier;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
