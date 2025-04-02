@@ -17,7 +17,7 @@ pub fn decode_str(v: &str) -> Result<Vec<u8>, Error> {
 
 /// a `Vec<u8>` encoded as base64 in human readable serialization
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
-pub struct Bytes(Vec<u8>);
+pub struct Bytes(pub Vec<u8>);
 
 impl Bytes {
     pub fn new() -> Self {
