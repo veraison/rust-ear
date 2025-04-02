@@ -100,3 +100,24 @@ impl Visitor<'_> for BytesVisitor {
         Ok(Bytes::from(v))
     }
 }
+
+impl ToString for Bytes {
+    fn to_string(&self) -> String {
+        self.0
+            .iter()
+            .map(|v| format!("{:02x}", v))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn to_string() {
+        let bytes = Bytes(vec![222u8, 173u8, 190u8, 239u8]);
+        assert_eq!(bytes.to_string(), "deadbeef".to_string());
+    }
+}

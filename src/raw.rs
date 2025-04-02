@@ -251,6 +251,30 @@ impl<'de> Visitor<'de> for RawValueVisitor {
     }
 }
 
+impl ToString for RawValue {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Null => "Null".to_string(),
+            Self::Integer(v) => v.to_string(),
+            Self::Float(v) => v.to_string(),
+            Self::Bool(v) => v.to_string(),
+            Self::Bytes(b) => b.to_string(),
+            Self::String(s) => format!(r#""{}""#, s),
+            Self::Array(vs) => format!(r#"[{}]"#, vs
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")),
+            Self::Map(vs) => format!(r#"{{{}}}"#, vs
+                .iter()
+                .map(|(k, v)| format!("{0}: {1}", k.to_string(), v.to_string()))
+                .collect::<Vec<_>>()
+                .join(", ")),
+            Self::Tagged(t, v) => format!("#6.{0}({1})", t, v.to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -394,5 +418,40 @@ mod test {
             ],
             buf
         );
+    }
+
+    #[test]
+    fn to_string() {
+        assert_eq!(RawValue::Null.to_string(), "Null".to_string());
+        assert_eq!(RawValue::Integer(234).to_string(), "234".to_string());
+        assert_eq!(RawValue::Float(1.5).to_string(), "1.5".to_string());
+        assert_eq!(
+            RawValue::String("foo".to_string()).to_string(),
+            r#""foo""#.to_string()
+        );
+        assert_eq!(
+            RawValue::Tagged(7, Box::new(RawValue::Bool(true))).to_string(),
+            "#6.7(true)".to_string()
+        );
+        assert_eq!(
+            RawValue::Bytes(Bytes(vec![222u8, 173u8, 190u8, 239u8])).to_string(),
+            "deadbeef".to_string()
+        );
+        assert_eq!(
+            RawValue::Array(vec![
+                RawValue::String("foo".to_string()),
+                RawValue::String("bar".to_string())
+            ])
+            .to_string(),
+            r#"["foo", "bar"]"#.to_string()
+        );
+        assert_eq!(
+            RawValue::Map(vec![
+                (RawValue::String("foo".to_string()), RawValue::Integer(1)),
+                (RawValue::String("bar".to_string()), RawValue::Integer(2)),
+            ])
+            .to_string(),
+            r#"{"foo": 1, "bar": 2}"#,
+        )
     }
 }
