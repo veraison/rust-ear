@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::error::Error;
+
 use serde::{
     de::{self, Visitor},
     ser::{Serialize, Serializer},
@@ -25,19 +27,9 @@ impl Serialize for TrustTier {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            match self {
-                TrustTier::None => serializer.serialize_str("none"),
-                TrustTier::Affirming => serializer.serialize_str("affirming"),
-                TrustTier::Warning => serializer.serialize_str("warning"),
-                TrustTier::Contraindicated => serializer.serialize_str("contraindicated"),
-            }
+            serializer.serialize_str(self.into())
         } else {
-            match self {
-                TrustTier::None => serializer.serialize_i8(0),
-                TrustTier::Affirming => serializer.serialize_i8(2),
-                TrustTier::Warning => serializer.serialize_i8(32),
-                TrustTier::Contraindicated => serializer.serialize_i8(96),
-            }
+            serializer.serialize_i8(self.into())
         }
     }
 }
@@ -64,13 +56,9 @@ impl Visitor<'_> for TrustTierVisitor {
     where
         E: de::Error,
     {
-        match value {
-            0 => Ok(TrustTier::None),
-            2 => Ok(TrustTier::Affirming),
-            32 => Ok(TrustTier::Warning),
-            96 => Ok(TrustTier::Contraindicated),
-            _ => Err(E::custom(format!("Unexpected TrustTier value: {value}"))),
-        }
+        return Ok(value
+            .try_into()
+            .map_err(|_| E::custom(format!("Unexpected TrustTier value: {value}")))?);
     }
 
     fn visit_i16<E>(self, value: i16) -> Result<Self::Value, E>
@@ -117,12 +105,80 @@ impl Visitor<'_> for TrustTierVisitor {
     where
         E: de::Error,
     {
-        match value {
+        return Ok(value
+            .try_into()
+            .map_err(|_| E::custom(format!("Unexpected TrustTier value: {value}")))?);
+    }
+}
+
+impl TryFrom<&str> for TrustTier {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
             "none" => Ok(TrustTier::None),
             "affirming" => Ok(TrustTier::Affirming),
             "warning" => Ok(TrustTier::Warning),
             "contraindicated" => Ok(TrustTier::Contraindicated),
-            _ => Err(E::custom(format!("Unexpected TrustTier value: {value}"))),
+            _ => Err(Error::InvalidName(value.to_string())),
+        }
+    }
+}
+
+impl TryFrom<i8> for TrustTier {
+    type Error = Error;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        match value {
+            0i8 => Ok(TrustTier::None),
+            2i8 => Ok(TrustTier::Affirming),
+            32i8 => Ok(TrustTier::Warning),
+            96i8 => Ok(TrustTier::Contraindicated),
+            _ => Err(Error::InvalidValue(value)),
+        }
+    }
+}
+
+impl From<TrustTier> for String {
+    fn from(val: TrustTier) -> String {
+        match val {
+            TrustTier::None => "none".to_string(),
+            TrustTier::Affirming => "affirming".to_string(),
+            TrustTier::Warning => "warning".to_string(),
+            TrustTier::Contraindicated => "contraindicated".to_string(),
+        }
+    }
+}
+
+impl<'a, 'b> From<&'a TrustTier> for &'b str {
+    fn from(val: &'a TrustTier) -> &'b str {
+        match val {
+            TrustTier::None => "none",
+            TrustTier::Affirming => "affirming",
+            TrustTier::Warning => "warning",
+            TrustTier::Contraindicated => "contraindicated",
+        }
+    }
+}
+
+impl From<TrustTier> for i8 {
+    fn from(val: TrustTier) -> i8 {
+        match val {
+            TrustTier::None => 0i8,
+            TrustTier::Affirming => 2i8,
+            TrustTier::Warning => 32i8,
+            TrustTier::Contraindicated => 96i8,
+        }
+    }
+}
+
+impl From<&TrustTier> for i8 {
+    fn from(val: &TrustTier) -> i8 {
+        match val {
+            TrustTier::None => 0i8,
+            TrustTier::Affirming => 2i8,
+            TrustTier::Warning => 32i8,
+            TrustTier::Contraindicated => 96i8,
         }
     }
 }
@@ -157,5 +213,29 @@ mod test {
             res.unwrap_err().to_string().as_str(),
             "Semantic(None, \"Unexpected TrustTier value: -2\")"
         );
+    }
+
+    #[test]
+    fn from() {
+        let tier: TrustTier = 2i8.try_into().unwrap();
+        assert_eq!(tier, TrustTier::Affirming);
+
+        let res = TryInto::<TrustTier>::try_into(7i8).err().unwrap();
+        assert_eq!(res.to_string(), "invalid value: 7".to_string());
+
+        let tier: TrustTier = "WaRniNg".try_into().unwrap();
+        assert_eq!(tier, TrustTier::Warning);
+
+        let res = TryInto::<TrustTier>::try_into("bad").err().unwrap();
+        assert_eq!(res.to_string(), "invalid name: bad".to_string());
+    }
+
+    #[test]
+    fn into() {
+        let i: i8 = TrustTier::Affirming.into();
+        assert_eq!(i, 2i8);
+
+        let s: String = TrustTier::Warning.into();
+        assert_eq!(s, "warning".to_string());
     }
 }
