@@ -340,7 +340,7 @@ pub static SOURCED_DATA_CLAIM_MAP: &Map<i8, ValueDescription<'static>> = &phf_ma
 /// This is a claim regarding the trustworthiness of one aspect of the attested environment, as
 /// defined in
 /// <https://datatracker.ietf.org/doc/html/draft-ietf-rats-ar4si-04#name-trustworthiness-claims>
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct TrustClaim {
     /// Claim value
     pub value: Option<i8>,
@@ -461,6 +461,13 @@ impl TrustClaim {
             return COMMON_CLAIM_MAP.get(&val);
         }
         self.value_desc.get(&val)
+    }
+}
+
+impl std::fmt::Debug for TrustClaim {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, r#"TrustClaim{{"{0}({1})": {2}}}"#, self.tag(), self.key(), self.value())
     }
 }
 
