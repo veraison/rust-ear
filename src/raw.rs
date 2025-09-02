@@ -5,6 +5,9 @@
 // - tags are stripped when serializing to JSON
 // - byte strings are written as base64-encoded strings to JSON (meaning they deserialize as
 //   text strings, losing their original type).
+
+use std::fmt::Display;
+
 use serde::de::{self, Deserialize, EnumAccess, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, Serializer};
 use serde::ser::{SerializeMap as _, SerializeSeq as _, SerializeTupleVariant as _};
@@ -251,8 +254,8 @@ impl<'de> Visitor<'de> for RawValueVisitor {
     }
 }
 
-impl ToString for RawValue {
-    fn to_string(&self) -> String {
+impl Display for RawValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Null => "Null".to_string(),
             Self::Integer(v) => v.to_string(),
@@ -260,18 +263,23 @@ impl ToString for RawValue {
             Self::Bool(v) => v.to_string(),
             Self::Bytes(b) => b.to_string(),
             Self::String(s) => format!(r#""{}""#, s),
-            Self::Array(vs) => format!(r#"[{}]"#, vs
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")),
-            Self::Map(vs) => format!(r#"{{{}}}"#, vs
-                .iter()
-                .map(|(k, v)| format!("{0}: {1}", k.to_string(), v.to_string()))
-                .collect::<Vec<_>>()
-                .join(", ")),
-            Self::Tagged(t, v) => format!("#6.{0}({1})", t, v.to_string()),
+            Self::Array(vs) => format!(
+                r#"[{}]"#,
+                vs.iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::Map(vs) => format!(
+                r#"{{{}}}"#,
+                vs.iter()
+                    .map(|(k, v)| format!("{0}: {1}", k, v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::Tagged(t, v) => format!("#6.{0}({1})", t, v),
         }
+        .fmt(f)
     }
 }
 

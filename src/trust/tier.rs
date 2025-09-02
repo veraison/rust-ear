@@ -56,9 +56,9 @@ impl Visitor<'_> for TrustTierVisitor {
     where
         E: de::Error,
     {
-        return Ok(value
+        value
             .try_into()
-            .map_err(|_| E::custom(format!("Unexpected TrustTier value: {value}")))?);
+            .map_err(|_| E::custom(format!("Unexpected TrustTier value: {value}")))
     }
 
     fn visit_i16<E>(self, value: i16) -> Result<Self::Value, E>
@@ -105,9 +105,9 @@ impl Visitor<'_> for TrustTierVisitor {
     where
         E: de::Error,
     {
-        return Ok(value
+        value
             .try_into()
-            .map_err(|_| E::custom(format!("Unexpected TrustTier value: {value}")))?);
+            .map_err(|_| E::custom(format!("Unexpected TrustTier value: {value}")))
     }
 }
 

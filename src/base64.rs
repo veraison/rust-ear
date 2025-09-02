@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Display;
+
 use base64::{self, engine::general_purpose, Engine as _};
 use serde::{
     de::{self, Deserialize, Visitor},
@@ -101,13 +103,14 @@ impl Visitor<'_> for BytesVisitor {
     }
 }
 
-impl ToString for Bytes {
-    fn to_string(&self) -> String {
+impl Display for Bytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0
             .iter()
             .map(|v| format!("{:02x}", v))
             .collect::<Vec<_>>()
             .join("")
+            .fmt(f)
     }
 }
 
