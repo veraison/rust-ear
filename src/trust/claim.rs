@@ -465,9 +465,14 @@ impl TrustClaim {
 }
 
 impl std::fmt::Debug for TrustClaim {
-
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, r#"TrustClaim{{"{0}({1})": {2}}}"#, self.tag(), self.key(), self.value())
+        write!(
+            f,
+            r#"TrustClaim{{"{0}({1})": {2}}}"#,
+            self.tag(),
+            self.key(),
+            self.value()
+        )
     }
 }
 
