@@ -56,6 +56,20 @@ impl TryFrom<&str> for OneNonce {
     }
 }
 
+impl TryFrom<String> for OneNonce {
+    type Error = Error;
+
+    fn try_from(v: String) -> Result<Self, Error> {
+        if v.len() >= 8 && v.len() <= 88 {
+            Ok(OneNonce::String(v))
+        } else {
+            Err(Error::ParseError(
+                "nonce must be between 8 and 88 characters".to_string(),
+            ))
+        }
+    }
+}
+
 impl fmt::Display for OneNonce {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let enc: String;
@@ -171,6 +185,14 @@ impl TryFrom<&str> for Nonce {
     }
 }
 
+impl TryFrom<String> for Nonce {
+    type Error = Error;
+
+    fn try_from(v: String) -> Result<Self, Error> {
+        Ok(Nonce(vec![OneNonce::try_from(v)?]))
+    }
+}
+
 impl TryFrom<&[&str]> for Nonce {
     type Error = Error;
 
@@ -178,6 +200,24 @@ impl TryFrom<&[&str]> for Nonce {
         let mut res: Nonce = Nonce(vec![]);
         for (i, v) in vals.iter().enumerate() {
             res.0.push(OneNonce::try_from(*v).map_err(|e| {
+                let msg = match e {
+                    Error::ParseError(s) => s,
+                    _ => e.to_string(),
+                };
+                Error::ParseError(format!("item {i}: {msg}"))
+            })?);
+        }
+        Ok(res)
+    }
+}
+
+impl TryFrom<&[String]> for Nonce {
+    type Error = Error;
+
+    fn try_from(vals: &[String]) -> Result<Self, Error> {
+        let mut res: Nonce = Nonce(vec![]);
+        for (i, v) in vals.iter().enumerate() {
+            res.0.push(OneNonce::try_from(v.as_str()).map_err(|e| {
                 let msg = match e {
                     Error::ParseError(s) => s,
                     _ => e.to_string(),
