@@ -7,7 +7,7 @@ use serde::{
     ser::{Serialize, Serializer},
     Deserialize,
 };
-use std::fmt;
+use std::fmt::{self, Display};
 
 /// Tier of a trustworthiness claim's value
 ///
@@ -19,6 +19,12 @@ pub enum TrustTier {
     Affirming,
     Warning,
     Contraindicated,
+}
+
+impl TrustTier {
+    pub fn as_str(&self) -> &str {
+        self.into()
+    }
 }
 
 impl Serialize for TrustTier {
@@ -111,6 +117,12 @@ impl Visitor<'_> for TrustTierVisitor {
     }
 }
 
+impl Display for TrustTier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
 impl TryFrom<&str> for TrustTier {
     type Error = Error;
 
@@ -141,6 +153,17 @@ impl TryFrom<i8> for TrustTier {
 
 impl From<TrustTier> for String {
     fn from(val: TrustTier) -> String {
+        match val {
+            TrustTier::None => "none".to_string(),
+            TrustTier::Affirming => "affirming".to_string(),
+            TrustTier::Warning => "warning".to_string(),
+            TrustTier::Contraindicated => "contraindicated".to_string(),
+        }
+    }
+}
+
+impl From<&TrustTier> for String {
+    fn from(val: &TrustTier) -> String {
         match val {
             TrustTier::None => "none".to_string(),
             TrustTier::Affirming => "affirming".to_string(),

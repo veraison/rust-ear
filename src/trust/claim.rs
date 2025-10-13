@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 // SPDX-License-Identifier: Apache-2.0
 use crate::error::Error;
 
@@ -455,6 +457,7 @@ impl TrustClaim {
         }
     }
 
+    /// Return the `ValueDescription` for the current value of this claim.
     fn value_desc(&self) -> Option<&ValueDescription> {
         let val = self.value();
         if (-1..=1).contains(&val) || val == 99 {
@@ -473,6 +476,12 @@ impl std::fmt::Debug for TrustClaim {
             self.key(),
             self.value()
         )
+    }
+}
+
+impl Display for TrustClaim {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.value_name().fmt(f)
     }
 }
 
@@ -550,6 +559,12 @@ impl TryFrom<i8> for TrustClaim {
 
 impl From<TrustClaim> for String {
     fn from(val: TrustClaim) -> String {
+        val.tag().to_string()
+    }
+}
+
+impl From<&TrustClaim> for String {
+    fn from(val: &TrustClaim) -> String {
         val.tag().to_string()
     }
 }
