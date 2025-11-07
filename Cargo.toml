@@ -14,7 +14,7 @@ base64 = "0.22.1"
 ciborium = "0.2.0"
 cose-rust = "0.1.2"
 hex = "0.4.3"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 lazy_static = "1.5.0"
 openssl = "0.10.54"
 phf = {version = "0.13.1", features = ["macros", "serde"]}
