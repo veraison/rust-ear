@@ -19,7 +19,9 @@
         "storage-opaque": 2,
         "sourced-data": 2
       },
-      "ear.appraisal-policy-id": "policy://psa/60a0068d"
+      "ear.appraisal-policy-ids": [
+        "policy://psa/60a0068d"
+      ]
     }
   }
 }
