@@ -458,7 +458,7 @@ impl TrustClaim {
     }
 
     /// Return the `ValueDescription` for the current value of this claim.
-    fn value_desc(&self) -> Option<&ValueDescription> {
+    fn value_desc(&self) -> Option<&ValueDescription<'_>> {
         let val = self.value();
         if (-1..=1).contains(&val) || val == 99 {
             return COMMON_CLAIM_MAP.get(&val);
