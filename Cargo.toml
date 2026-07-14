@@ -10,6 +10,10 @@ keywords = ["ear", "serde"]
 categories = ["data-structures", "encoding"]
 
 
+[package.metadata.docs.rs]
+features = ["cose", "jwt"]
+
+
 [dependencies]
 base64 = "0.22.1"
 ciborium = "0.2.0"
