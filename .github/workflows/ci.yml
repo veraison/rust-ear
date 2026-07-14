@@ -10,20 +10,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  lint:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v5
     - name: Formatting checks
       run: cargo fmt --all -- --check
     - name: Clippy checks
       run: cargo clippy --all-targets -- -D clippy::all -D clippy::cargo  -A clippy::multiple-crate-versions
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - ""                                 # default (cose + jwt)
+          - "--no-default-features --features cose"
+          - "--no-default-features --features jwt"
+          - "--no-default-features"
+          - "--all-features"
+    steps:
+    - uses: actions/checkout@v5
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose ${{ matrix.features }}
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose ${{ matrix.features }}
 
 # Recommended pipeline if using advisories, to avoid sudden breakages
 # From: https://github.com/EmbarkStudios/cargo-deny-action
