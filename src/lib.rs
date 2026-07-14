@@ -19,6 +19,7 @@
 //! ## Signing
 //!
 //! ```
+//! # #[cfg(feature = "jwt")] {
 //! use std::collections::BTreeMap;
 //! use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions};
 //!
@@ -45,11 +46,13 @@
 //!
 //!     let signed = token.sign_jwt_pem(Algorithm::ES256, SIGNING_KEY.as_bytes()).unwrap();
 //! }
+//! # }
 //! ```
 //!
 //! ## Verification
 //!
 //! ```
+//! # #[cfg(feature = "jwt")] {
 //! use ear::{Ear, Algorithm};
 //!
 //! const VERIF_KEY: &str = r#"
@@ -67,6 +70,7 @@
 //!     let token = Ear::from_jwt_jwk(signed, Algorithm::ES256, VERIF_KEY.as_bytes()).unwrap();
 //!     println!("EAR profiles: {}", token.profile);
 //! }
+//! # }
 //! ```
 //!
 //! # Extensions and Profiles
@@ -188,6 +192,7 @@
 //! inside an EAR.
 //!
 //! ```
+//! # #[cfg(feature = "jwt")] {
 //! use ear::{Ear, Algorithm, Appraisal, RawValueKind, RawValue};
 //! use std::time::{SystemTime, Duration, UNIX_EPOCH};
 //!
@@ -236,6 +241,7 @@
 //!     _ => panic!(),
 //! };
 //! assert!(SystemTime::now().duration_since(UNIX_EPOCH).unwrap() < exp2);
+//! # }
 //! ```
 //!
 //! # JWT/CWT headers
@@ -250,7 +256,7 @@
 //! `_with_header` signing methods can be used to specify a custom `cose::headers::CoseHeader`,
 //! which can be reating from an algorithm using `new_cwt_header`.
 //!
-//! ```
+//! ```ignore (requires the cose and jwt features)
 //! use std::collections::BTreeMap;
 //! use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions, new_jwt_header, new_cose_header};
 //!
@@ -316,8 +322,10 @@ mod trust;
 pub use self::algorithm::Algorithm;
 pub use self::appraisal::Appraisal;
 pub use self::base64::Bytes;
-pub use self::ear::new_cose_header;
-pub use self::ear::new_jwt_header;
+#[cfg(feature = "cose")]
+pub use self::ear::cose::new_cose_header;
+#[cfg(feature = "jwt")]
+pub use self::ear::jwt::new_jwt_header;
 pub use self::ear::Ear;
 pub use self::error::Error;
 pub use self::extension::get_profile;
