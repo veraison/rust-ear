@@ -11,6 +11,7 @@ use serde::{
 use crate::error::Error;
 
 /// decodes bytes from a base64-encoded string
+#[cfg(feature = "cose")]
 pub fn decode_str(v: &str) -> Result<Vec<u8>, Error> {
     general_purpose::URL_SAFE_NO_PAD
         .decode(v)
