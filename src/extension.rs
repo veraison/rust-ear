@@ -385,7 +385,7 @@ impl Profile {
                 .register(&entry.name, entry.key, entry.kind)?
         }
 
-        for (_, appraisal) in ear.submods.iter_mut() {
+        for appraisal in ear.submods.values_mut() {
             for entry in self.appraisal.clone() {
                 appraisal
                     .extensions
