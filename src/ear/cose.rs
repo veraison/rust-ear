@@ -252,20 +252,23 @@ fn alg_to_cose(alg: &Algorithm) -> Result<i32, Error> {
 #[rustfmt::skip::macros(vec)]
 mod test {
     use super::*;
-    use crate::{Appraisal, Extensions, VerifierID};
+    use crate::{Appraisal, Extensions, VerifierID, EAR_PROFILE};
     use std::collections::BTreeMap;
 
     #[test]
     fn cose() {
         let ear = Ear {
-            profile: "test".to_string(),
+            profile: EAR_PROFILE.to_string(),
             iat: 1,
+            exp: None,
             vid: VerifierID {
                 build: "vsts 0.0.1".to_string(),
                 developer: "https://veraison-project.org".to_string(),
             },
             raw_evidence: None,
             nonce: None,
+            status: None,
+            topology: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),
         };

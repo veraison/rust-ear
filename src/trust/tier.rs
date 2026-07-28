@@ -13,7 +13,7 @@ use std::fmt::{self, Display};
 ///
 /// This is a categorisation of the levels of trustworthiness based on the values assigned to
 /// trustworthiness claims.
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TrustTier {
     None,
     Affirming,

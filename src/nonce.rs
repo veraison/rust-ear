@@ -2,24 +2,28 @@
 
 use std::fmt;
 
+use ::base64::{engine::general_purpose, Engine as _};
 use serde::de::{self, Deserialize, Visitor};
-use serde::ser::{Error as _, Serialize, SerializeSeq as _, Serializer};
+use serde::ser::{Serialize, SerializeSeq as _, Serializer};
 
 use crate::base64::Bytes;
 use crate::error::Error;
 
+/// The encoding rules come from RFC 9711, Section 4.1, as referenced by
+/// draft-ietf-rats-ear-04, Sections 3 and 3.1:
+/// <https://www.rfc-editor.org/rfc/rfc9711.html#section-4.1>.
+///
+/// Keep the decoded bytes internally so the same nonce can be serialized as base64url text in
+/// JSON and as a byte string in CBOR.
 #[derive(Debug, PartialEq)]
-enum OneNonce {
-    String(String),
-    Bytes(Bytes),
-}
+struct OneNonce(Bytes);
 
 impl TryFrom<&[u8]> for OneNonce {
     type Error = Error;
 
     fn try_from(v: &[u8]) -> Result<Self, Error> {
         if v.len() >= 8 && v.len() <= 64 {
-            Ok(OneNonce::Bytes(Bytes::from(v)))
+            Ok(OneNonce(Bytes::from(v)))
         } else {
             Err(Error::ParseError(
                 "nonce must be between 8 and 64 bytes".to_string(),
@@ -32,13 +36,7 @@ impl TryFrom<&Vec<u8>> for OneNonce {
     type Error = Error;
 
     fn try_from(v: &Vec<u8>) -> Result<Self, Error> {
-        if v.len() >= 8 && v.len() <= 64 {
-            Ok(OneNonce::Bytes(Bytes::from(v.as_slice())))
-        } else {
-            Err(Error::ParseError(
-                "nonce must be between 8 and 64 bytes".to_string(),
-            ))
-        }
+        OneNonce::try_from(v.as_slice())
     }
 }
 
@@ -46,13 +44,9 @@ impl TryFrom<&str> for OneNonce {
     type Error = Error;
 
     fn try_from(v: &str) -> Result<Self, Error> {
-        if v.len() >= 8 && v.len() <= 88 {
-            Ok(OneNonce::String(v.to_string()))
-        } else {
-            Err(Error::ParseError(
-                "nonce must be between 8 and 88 characters".to_string(),
-            ))
-        }
+        let bytes = Bytes::try_from(v)
+            .map_err(|_| Error::ParseError("nonce must be base64url encoded".to_string()))?;
+        OneNonce::try_from(bytes.as_slice())
     }
 }
 
@@ -60,45 +54,27 @@ impl TryFrom<String> for OneNonce {
     type Error = Error;
 
     fn try_from(v: String) -> Result<Self, Error> {
-        if v.len() >= 8 && v.len() <= 88 {
-            Ok(OneNonce::String(v))
-        } else {
-            Err(Error::ParseError(
-                "nonce must be between 8 and 88 characters".to_string(),
-            ))
-        }
+        OneNonce::try_from(v.as_str())
     }
 }
 
 impl fmt::Display for OneNonce {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let enc: String;
-
-        f.write_str(match self {
-            OneNonce::Bytes(v) => {
-                enc = hex::encode(v.as_slice());
-                &enc
-            }
-            OneNonce::String(v) => v,
-        })
+        f.write_str(&general_purpose::URL_SAFE_NO_PAD.encode(self.0.as_slice()))
     }
 }
 
 impl PartialEq<&str> for OneNonce {
     fn eq(&self, other: &&str) -> bool {
-        match self {
-            OneNonce::String(s) => s == *other,
-            _ => false,
-        }
+        Bytes::try_from(*other)
+            .map(|bytes| self.0 == bytes)
+            .unwrap_or(false)
     }
 }
 
 impl PartialEq<&[u8]> for OneNonce {
     fn eq(&self, other: &&[u8]) -> bool {
-        match self {
-            OneNonce::Bytes(b) => b.as_slice() == *other,
-            _ => false,
-        }
+        self.0.as_slice() == *other
     }
 }
 
@@ -107,22 +83,7 @@ impl Serialize for OneNonce {
     where
         S: Serializer,
     {
-        match self {
-            OneNonce::Bytes(v) => {
-                if !serializer.is_human_readable() {
-                    v.serialize(serializer)
-                } else {
-                    Err(S::Error::custom("cannot write byte nonce to JSON"))
-                }
-            }
-            OneNonce::String(v) => {
-                if serializer.is_human_readable() {
-                    serializer.serialize_str(v)
-                } else {
-                    Err(S::Error::custom("cannot write string nonce to CBOR"))
-                }
-            }
-        }
+        self.0.serialize(serializer)
     }
 }
 
@@ -159,7 +120,13 @@ impl Visitor<'_> for OneNonceVisitor {
     }
 }
 
-/// echoed back by the verifier to provide freshness
+/// Echoed back by the verifier to provide freshness.
+///
+/// JSON uses base64url text and CBOR uses byte strings, as defined by [RFC 9711, Section 4.1] and
+/// referenced by [draft-ietf-rats-ear-04, Sections 3 and 3.1].
+///
+/// [RFC 9711, Section 4.1]: https://www.rfc-editor.org/rfc/rfc9711.html#section-4.1
+/// [draft-ietf-rats-ear-04, Sections 3 and 3.1]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#section-3
 #[derive(Debug, PartialEq)]
 pub struct Nonce(Vec<OneNonce>);
 
@@ -365,22 +332,19 @@ mod test {
 
     #[test]
     fn from_str() {
-        let n = Nonce::try_from("test value").unwrap();
-        assert_eq!(n.to_string(), "test value");
+        let n = Nonce::try_from("3q2-796tvu8").unwrap();
+        assert_eq!(n.to_string(), "3q2-796tvu8");
 
-        let e = Nonce::try_from("foo").unwrap_err();
+        let e = Nonce::try_from("AQIDBA").unwrap_err();
         assert_eq!(
             e.to_string(),
-            "parse error: nonce must be between 8 and 88 characters"
+            "parse error: nonce must be between 8 and 64 bytes"
         );
 
-        let e = Nonce::try_from(
-            "this is a very long nonce value that goes on, and on and on and on, seemingly without end...",
-        )
-        .unwrap_err();
+        let e = Nonce::try_from("not base64url!").unwrap_err();
         assert_eq!(
             e.to_string(),
-            "parse error: nonce must be between 8 and 88 characters"
+            "parse error: nonce must be base64url encoded"
         );
     }
 
@@ -388,7 +352,7 @@ mod test {
     fn from_bytes() {
         let n =
             Nonce::try_from([0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef].as_slice()).unwrap();
-        assert_eq!(n.to_string(), "deadbeefdeadbeef");
+        assert_eq!(n.to_string(), "3q2-796tvu8");
 
         let e = Nonce::try_from([0xde, 0xad, 0xbe, 0xef].as_slice()).unwrap_err();
         assert_eq!(
@@ -415,13 +379,13 @@ mod test {
 
     #[test]
     fn from_str_slice() {
-        let n = Nonce::try_from(["test value one", "test value two"].as_slice()).unwrap();
-        assert_eq!(n.to_string(), "[test value one, test value two]");
+        let n = Nonce::try_from(["3q2-796tvu8", "q63K_qutyv4"].as_slice()).unwrap();
+        assert_eq!(n.to_string(), "[3q2-796tvu8, q63K_qutyv4]");
 
-        let e = Nonce::try_from(["test value one", "foo"].as_slice()).unwrap_err();
+        let e = Nonce::try_from(["3q2-796tvu8", "AQIDBA"].as_slice()).unwrap_err();
         assert_eq!(
             e.to_string(),
-            "parse error: item 1: nonce must be between 8 and 88 characters"
+            "parse error: item 1: nonce must be between 8 and 64 bytes"
         );
     }
 
@@ -435,7 +399,7 @@ mod test {
             .as_slice(),
         )
         .unwrap();
-        assert_eq!(n.to_string(), "[deadbeefdeadbeef, abadcafeabadcafe]");
+        assert_eq!(n.to_string(), "[3q2-796tvu8, q63K_qutyv4]");
 
         let e = Nonce::try_from(
             [
@@ -457,12 +421,12 @@ mod test {
         let n = Nonce::try_from(bytes.as_slice()).unwrap();
         assert_eq!(n, bytes.as_slice());
         assert_ne!(n, &[0xde, 0xad][..]);
-        assert_ne!(n, "deadbeefdeadbeef");
+        assert_eq!(n, "3q2-796tvu8");
 
-        let n = Nonce::try_from("test value").unwrap();
-        assert_eq!(n, "test value");
-        assert_ne!(n, "test");
-        assert_ne!(n, bytes.as_slice());
+        let n = Nonce::try_from("3q2-796tvu8").unwrap();
+        assert_eq!(n, "3q2-796tvu8");
+        assert_ne!(n, "AQIDBA");
+        assert_eq!(n, bytes.as_slice());
 
         let n = Nonce(Vec::new());
         assert_ne!(n, "test");
@@ -475,7 +439,7 @@ mod test {
         let n = Nonce(Vec::new());
         assert!(n.is_empty());
 
-        let n = Nonce::try_from("test value").unwrap();
+        let n = Nonce::try_from("3q2-796tvu8").unwrap();
         assert!(!n.is_empty());
     }
 
@@ -484,8 +448,10 @@ mod test {
         let bytes = vec![0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef];
         let n = Nonce::try_from(bytes.as_slice()).unwrap();
 
-        let val = serde_json::to_string(&n).unwrap_err();
-        assert_eq!(val.to_string(), "cannot write byte nonce to JSON");
+        let val = serde_json::to_string(&n).unwrap();
+        assert_eq!(val, r#""3q2-796tvu8""#);
+        let json_nonce: Nonce = serde_json::from_str(&val).unwrap();
+        assert_eq!(json_nonce, n);
 
         let mut buf: Vec<u8> = Vec::new();
         into_writer(&n, &mut buf).unwrap();
@@ -496,18 +462,13 @@ mod test {
                 0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef,
             ]
         );
+        let cbor_nonce: Nonce = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(cbor_nonce, n);
 
-        let n = Nonce::try_from("test value").unwrap();
-
-        let val = serde_json::to_string(&n).unwrap();
-        assert_eq!(val, r#""test value""#);
-
-        let mut buf: Vec<u8> = Vec::new();
-        let val = into_writer(&n, &mut buf).unwrap_err();
-        assert_eq!(
-            val.to_string(),
-            r#"Value("cannot write string nonce to CBOR")"#
-        );
+        let from_json: Nonce = serde_json::from_str(r#""3q2-796tvu8""#).unwrap();
+        let mut cross_format = Vec::new();
+        into_writer(&from_json, &mut cross_format).unwrap();
+        assert_eq!(cross_format, buf);
 
         let n = Nonce(Vec::new());
         let val = serde_json::to_string(&n).unwrap();
@@ -522,28 +483,9 @@ mod test {
         ]
         );
 
-        let n = Nonce::try_from(["test value one", "test value two"].as_slice()).unwrap();
+        let n = Nonce::try_from(["3q2-796tvu8", "q63K_qutyv4"].as_slice()).unwrap();
         let val = serde_json::to_string(&n).unwrap();
-        assert_eq!(val, r#"["test value one","test value two"]"#);
-
-        let mut buf: Vec<u8> = Vec::new();
-        let val = into_writer(&n, &mut buf).unwrap_err();
-        assert_eq!(
-            val.to_string(),
-            r#"Value("cannot write string nonce to CBOR")"#
-        );
-
-        let n = Nonce::try_from(
-            [
-                vec![0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef],
-                vec![0xab, 0xad, 0xca, 0xfe, 0xab, 0xad, 0xca, 0xfe],
-            ]
-            .as_slice(),
-        )
-        .unwrap();
-
-        let val = serde_json::to_string(&n).unwrap_err();
-        assert_eq!(val.to_string(), "cannot write byte nonce to JSON");
+        assert_eq!(val, r#"["3q2-796tvu8","q63K_qutyv4"]"#);
 
         let mut buf: Vec<u8> = Vec::new();
         into_writer(&n, &mut buf).unwrap();

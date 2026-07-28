@@ -17,6 +17,7 @@ features = ["cose", "jwt"]
 [dependencies]
 base64 = "0.22.1"
 ciborium = "0.2.0"
+cmw = "0.1.2"
 cose-rust = { version = "0.1.2", optional = true }
 hex = "0.4.3"
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"], optional = true }

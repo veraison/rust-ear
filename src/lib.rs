@@ -3,7 +3,7 @@
 //! An implementation of EAT Attestation Results token.
 //!
 //! This crate provides an implementation of attestation results tokens that conforms to EAT
-//! Attestation Results [draft-fv-rats-ear] specification. This defines a token intended to
+//! Attestation Results [draft-ietf-rats-ear-04] specification. This defines a token intended to
 //! communicate a set of appraisals of attested evidence produced by a verifier. Each appraisal is
 //! based around a set of trust claims defined by Attestation Results for Secure Interactions
 //! (AR4SI) [draft-ietf-rats-ar4si].
@@ -11,7 +11,7 @@
 //! The attestation result may be serialized as a signed JSON or CBOR token (using JWT and COSE,
 //! respectively).
 //!
-//! [draft-fv-rats-ear]: https://datatracker.ietf.org/doc/draft-fv-rats-ear/
+//! [draft-ietf-rats-ear-04]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
 //! [draft-ietf-rats-ar4si]: https://datatracker.ietf.org/doc/draft-ietf-rats-ar4si/
 //!
 //! # Examples
@@ -21,7 +21,7 @@
 //! ```
 //! # #[cfg(feature = "jwt")] {
 //! use std::collections::BTreeMap;
-//! use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions};
+//! use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions, EAR_PROFILE};
 //!
 //! const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
 //! MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
@@ -32,14 +32,17 @@
 //!
 //! fn main() {
 //!     let token = Ear{
-//!         profile: "test".to_string(),
+//!         profile: EAR_PROFILE.to_string(),
 //!         iat: 1,
+//!         exp: None,
 //!         vid: VerifierID {
 //!             build: "vsts 0.0.1".to_string(),
 //!             developer: "https://veraison-project.org".to_string(),
 //!         },
 //!         raw_evidence: None,
 //!         nonce: None,
+//!         status: None,
+//!         topology: None,
 //!         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
 //!         extensions: Extensions::new(),
 //!     };
@@ -65,7 +68,7 @@
 //! "#;
 //!
 //! fn main() {
-//!     let signed = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJlYXRfcHJvZmlsZSI6InRlc3QiLCJpYXQiOjEsImVhci52ZXJpZmllci1pZCI6eyJkZXZlbG9wZXIiOiJodHRwczovL3ZlcmFpc29uLXByb2plY3Qub3JnIiwiYnVpbGQiOiJ2c3RzIDAuMC4xIn0sInN1Ym1vZHMiOnsidGVzdCI6eyJlYXIuc3RhdHVzIjoibm9uZSJ9fX0.G25v0j0NDQhSOcK3Jtfq5vqVxnoWuWf-Q0DCNkCwpyB03DGr25ZDJ3IDSAHVPZrr6TVMwj8RcGEzQnCrucem4Q";
+//!     let signed = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJlYXRfcHJvZmlsZSI6InRhZzppZXRmLm9yZywyMDI2OnJhdHMvZWFyIzA0IiwiaWF0IjoxLCJlYXJfdmVyaWZpZXJfaWQiOnsiZGV2ZWxvcGVyIjoiaHR0cHM6Ly92ZXJhaXNvbi1wcm9qZWN0Lm9yZyIsImJ1aWxkIjoidnN0cyAwLjAuMSJ9LCJzdWJtb2RzIjp7InRlc3QiOnsiZWFyX3N0YXR1cyI6Im5vbmUifX19.U5jj5G6xCT79IJ029izVYgHQFSAf_aCLHhEmon-iMnH1HrOfwygOt2k7_HROkJFu9hw7GgfKTK29gDS2MzIX4Q";
 //!
 //!     let token = Ear::from_jwt_jwk(signed, Algorithm::ES256, VERIF_KEY.as_bytes()).unwrap();
 //!     println!("EAR profiles: {}", token.profile);
@@ -133,7 +136,7 @@
 //! use ear::{Ear, Appraisal, RawValueKind, RawValue, Profile, register_profile};
 //!
 //! fn init_profile() {
-//!     let mut profile = Profile::new("tag:github.com,2023:veraison/ear#acme-profile");
+//!     let mut profile = Profile::new("tag:ietf.org,2026:rats/ear#04");
 //!
 //!     profile.register_ear_extension(
 //!         "ext.company-name", -65537, RawValueKind::String).unwrap();
@@ -147,10 +150,10 @@
 //!     init_profile();
 //!
 //!     let mut ear = Ear::new_with_profile(
-//!         "tag:github.com,2023:veraison/ear#acme-profile").unwrap();
+//!         "tag:ietf.org,2026:rats/ear#04").unwrap();
 //!     // these will apply to all submods/appraisals within a profiled EAR
 //!     let mut appraisal = Appraisal::new_with_profile(
-//!         "tag:github.com,2023:veraison/ear#acme-profile").unwrap();
+//!         "tag:ietf.org,2026:rats/ear#04").unwrap();
 //!
 //!     ear.extensions.set_by_name(
 //!         "ext.company-name",
@@ -183,17 +186,15 @@
 //!
 //! # JWT/CWT common claims
 //!
-//! The only common JWT/CWT claim specified by EAR spec is "iat" (issued at). Other claims (e.g.
-//! "iss" or "exp") are not expected to be present inside a valid EAR. It is, however, possible
-//! to define them for a particular profile and include them as extensions via mechanisms described
-//! above.
+//! EAR directly supports the mandatory "iat" (issued at) claim and the optional "exp"
+//! (expiration time) claim. Other common JWT/CWT claims can be included as extensions.
 //!
-//! The following example shows how to include and then verify expiration time ("exp" JWT claim)
-//! inside an EAR.
+//! The following example shows how to include an expiration time. Deserialization rejects an EAR
+//! whose expiration time has passed.
 //!
 //! ```
 //! # #[cfg(feature = "jwt")] {
-//! use ear::{Ear, Algorithm, Appraisal, RawValueKind, RawValue};
+//! use ear::{Ear, Algorithm, Appraisal};
 //! use std::time::{SystemTime, Duration, UNIX_EPOCH};
 //!
 //! const VERIF_KEY: &str = r#"
@@ -213,34 +214,25 @@
 //! ";
 //!
 //! let mut ear = Ear::new();
-//! ear.profile = "tag:github.com,2023:veraison/ear#acme-profile".to_string();
+//! ear.profile = "tag:ietf.org,2026:rats/ear#04".to_string();
 //! ear.vid.build = "vsts 0.0.1".to_string();
 //! ear.vid.developer = "https://veraison-project.org".to_string();
 //! ear.submods.insert("road-runner-trap".to_string(), Appraisal::new());
-//! ear.extensions.register("exp", 4, RawValueKind::Integer).unwrap();
 //!
 //! // expire 10 days from now
 //! let exp = SystemTime::now().checked_add(Duration::from_secs(60*60*24*10)).unwrap()
 //!                         .duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-//!
-//! ear.extensions.set_by_name("exp", RawValue::Integer(exp)).unwrap();
+//! ear.exp = Some(exp);
 //!
 //!
 //! let signed = ear
 //!     .sign_jwt_pem(Algorithm::ES256, SIGNING_KEY.as_bytes())
 //!     .unwrap();
 //!
-//! let mut ear2 =
+//! let ear2 =
 //!     Ear::from_jwt_jwk(signed.as_str(), Algorithm::ES256, VERIF_KEY.as_bytes()).unwrap();
 //!
-//! ear2.extensions.register("exp", 4, RawValueKind::Integer).unwrap();
-//!
-//! // Verify the token has not expired.
-//! let exp2 = match ear2.extensions.get_by_name("exp").unwrap() {
-//!     RawValue::Integer(v) => Duration::from_secs(v as u64),
-//!     _ => panic!(),
-//! };
-//! assert!(SystemTime::now().duration_since(UNIX_EPOCH).unwrap() < exp2);
+//! assert_eq!(ear2.exp, Some(exp));
 //! # }
 //! ```
 //!
@@ -258,7 +250,10 @@
 //!
 //! ```ignore (requires the cose and jwt features)
 //! use std::collections::BTreeMap;
-//! use ear::{Ear, VerifierID, Algorithm, Appraisal, Extensions, new_jwt_header, new_cose_header};
+//! use ear::{
+//!     Ear, VerifierID, Algorithm, Appraisal, Extensions, EAR_PROFILE, new_jwt_header,
+//!     new_cose_header,
+//! };
 //!
 //! const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
 //! MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
@@ -269,14 +264,17 @@
 //!
 //! fn main() {
 //!     let token = Ear{
-//!         profile: "test".to_string(),
+//!         profile: EAR_PROFILE.to_string(),
 //!         iat: 1,
+//!         exp: None,
 //!         vid: VerifierID {
 //!             build: "vsts 0.0.1".to_string(),
 //!             developer: "https://veraison-project.org".to_string(),
 //!         },
 //!         raw_evidence: None,
 //!         nonce: None,
+//!         status: None,
+//!         topology: None,
 //!         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
 //!         extensions: Extensions::new(),
 //!     };
@@ -327,6 +325,7 @@ pub use self::ear::cose::new_cose_header;
 #[cfg(feature = "jwt")]
 pub use self::ear::jwt::new_jwt_header;
 pub use self::ear::Ear;
+pub use self::ear::EAR_PROFILE;
 pub use self::error::Error;
 pub use self::extension::get_profile;
 pub use self::extension::register_profile;
