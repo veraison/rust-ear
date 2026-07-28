@@ -1,15 +1,18 @@
 {
-  "ear.raw-evidence": "3q2-7w",
+  "ear_raw_evidence": [
+    "application/vnd.evidence",
+    "3q2-7w"
+  ],
   "iat": 1666091373,
-  "ear.verifier-id": {
+  "ear_verifier_id": {
     "build": "rrtrap-v1.0.0",
     "developer": "Acme Inc."
   },
-  "eat_profile": "tag:github.com,2023:veraison/ear",
+  "eat_profile": "tag:ietf.org,2026:rats/ear#04",
   "submods": {
     "test": {
-      "ear.status": "affirming",
-      "ear.trustworthiness-vector": {
+      "ear_status": "affirming",
+      "ear_trustworthiness_vector": {
         "instance-identity": 2,
         "configuration": 2,
         "executables": 3,
@@ -19,8 +22,8 @@
         "storage-opaque": 2,
         "sourced-data": 2
       },
-      "ear.appraisal-policy-ids": [
-        "policy://psa/60a0068d"
+      "ear_appraisal_policy_ids": [
+        "https://veraison.example/policy/1/60a0068d"
       ]
     }
   }

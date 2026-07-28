@@ -3,33 +3,64 @@
 use std::{collections::BTreeMap, fmt};
 
 use serde::{
-    de::{Deserialize, Visitor},
+    de::{self, Deserialize, Visitor},
     ser::{Serialize, SerializeMap},
 };
 
-use crate::{get_profile, Error, Extensions, KeyAttestation, RawValue, TrustTier, TrustVector};
+use crate::extension::ClaimKey;
+use crate::{
+    get_profile, Error, Extensions, KeyAttestation, Nonce, RawValue, TrustTier, TrustVector,
+};
 
-/// An appraisal crated by a verifier of the evidence provided by an attester
+/// An appraisal created by a verifier of the evidence provided by an attester
 #[derive(Debug, PartialEq)]
 pub struct Appraisal {
+    /// The EAT profile of this appraisal claims-set (`eat_profile` / 265)
+    ///
+    /// Note that submods of the same EAR may each have a different profile.
+    pub profile: Option<String>,
     /// The overall status of the appraisal represented by an AR4SI trustworthiness tier
     ///
-    /// This is typically the lowest tier of all the claims that have been made (who's values have
-    /// been set), though a verifier may chose to set it to a lower value.
+    /// This is typically the lowest tier of all the claims that have been made (whose values have
+    /// been set), though a verifier may choose to set it to a lower value.
     pub status: TrustTier,
     /// Contains the trustworthiness claims made in the appraisal
+    ///
+    /// When present on the wire, [draft-ietf-rats-ear-04 Appendix A] requires this map to be
+    /// non-empty.
+    ///
+    /// [draft-ietf-rats-ear-04 Appendix A]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#appendix-A
     pub trust_vector: TrustVector,
-    /// Identifiers of the policies applied by the verifier (EAR `ear.appraisal-policy-ids` / 1003)
+    /// Identifiers of the policies applied by the verifier (`ear_appraisal_policy_ids` / 1003)
+    ///
+    /// [draft-ietf-rats-ear-04, Section 3.1] requires a present list to be non-empty.
+    ///
+    /// [draft-ietf-rats-ear-04, Section 3.1]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#section-3.1
     pub policy_ids: Vec<String>,
-    /// Evidence claims extracted and annotated by the verifier from the evidence supplied by the
-    /// attester
-    /// (note: this is a Veraison project extension to EAR)
-    pub annotated_evidence: BTreeMap<String, RawValue>,
-    /// Additional claims made as part of the appraisal based on the policies in `policy_ids`
-    /// (note: this is a Veraison project extension to EAR)
-    pub policy_claims: BTreeMap<String, RawValue>,
-    /// Claims about the public key that is being attested
-    /// (note: this is a Veraison project extension to EAR)
+    /// The nonce extracted from the evidence this appraisal is based on (`eat_nonce` / 10)
+    ///
+    /// This reflects the freshness of the appraised evidence, and is distinct from the nonce of
+    /// the enclosing [`crate::Ear`], which reflects the freshness of the attestation result.
+    pub nonce: Option<Nonce>,
+    /// Claims with Attester authority extracted from the appraised evidence (`ear_attester_claims` / 1005)
+    ///
+    /// [Appendix A] requires a present claims map to be non-empty.
+    ///
+    /// TODO(draft-04): [Appendix A] permits integer keys in CBOR claims maps. The public API
+    /// intentionally uses strings for JSON/CBOR interoperability in this release.
+    ///
+    /// [Appendix A]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#appendix-A
+    pub attester_claims: BTreeMap<String, RawValue>,
+    /// Claims with Verifier authority added during appraisal (`ear_verifier_claims` / 1006)
+    ///
+    /// [Appendix A] requires a present claims map to be non-empty.
+    ///
+    /// TODO(draft-04): [Appendix A] permits integer keys in CBOR claims maps. The public API
+    /// intentionally uses strings for JSON/CBOR interoperability in this release.
+    ///
+    /// [Appendix A]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#appendix-A
+    pub verifier_claims: BTreeMap<String, RawValue>,
+    /// Public key attestation (Veraison extension: `ear_veraison_key_attestation` / -70002)
     pub key_attestation: Option<KeyAttestation>,
     /// extension claims
     pub extensions: Extensions,
@@ -39,11 +70,13 @@ impl Appraisal {
     /// Create an empty Appraisal
     pub fn new() -> Appraisal {
         Appraisal {
+            profile: None,
             status: TrustTier::None,
             trust_vector: TrustVector::new(),
             policy_ids: Vec::new(),
-            annotated_evidence: BTreeMap::new(),
-            policy_claims: BTreeMap::new(),
+            nonce: None,
+            attester_claims: BTreeMap::new(),
+            verifier_claims: BTreeMap::new(),
             key_attestation: None,
             extensions: Extensions::new(),
         }
@@ -51,15 +84,8 @@ impl Appraisal {
 
     /// Create an empty Appraisal, registering extensions associated with the specified profile
     pub fn new_with_profile(profile: &str) -> Result<Appraisal, Error> {
-        let mut appraisal = Appraisal {
-            status: TrustTier::None,
-            trust_vector: TrustVector::new(),
-            policy_ids: Vec::new(),
-            annotated_evidence: BTreeMap::new(),
-            policy_claims: BTreeMap::new(),
-            key_attestation: None,
-            extensions: Extensions::new(),
-        };
+        let mut appraisal = Appraisal::new();
+        appraisal.profile = Some(profile.to_string());
 
         match get_profile(profile) {
             Some(profile) => {
@@ -70,7 +96,7 @@ impl Appraisal {
         }
     }
 
-    /// Set the `status` based on the theirs of the claims in the trustworthiness vector
+    /// Set the `status` based on the tiers of the claims in the trustworthiness vector
     pub fn update_status_from_trust_vector(&mut self) {
         for claim in self.trust_vector {
             let claim_tier = claim.tier();
@@ -96,27 +122,42 @@ impl Serialize for Appraisal {
         let mut map = serializer.serialize_map(None)?;
 
         if is_human_readable {
-            map.serialize_entry("ear.status", &self.status)?;
+            if let Some(p) = &self.profile {
+                map.serialize_entry("eat_profile", p)?;
+            }
+
+            map.serialize_entry("ear_status", &self.status)?;
 
             if self.trust_vector.any_set() {
-                map.serialize_entry("ear.trustworthiness-vector", &self.trust_vector)?;
+                map.serialize_entry("ear_trustworthiness_vector", &self.trust_vector)?;
             }
 
             if !self.policy_ids.is_empty() {
-                map.serialize_entry("ear.appraisal-policy-ids", &self.policy_ids)?;
+                map.serialize_entry("ear_appraisal_policy_ids", &self.policy_ids)?;
             }
 
-            if !self.annotated_evidence.is_empty() {
-                map.serialize_entry("ear.veraison.annotated-evidence", &self.annotated_evidence)?;
+            if let Some(n) = &self.nonce {
+                map.serialize_entry("eat_nonce", n)?;
             }
 
-            if !self.policy_claims.is_empty() {
-                map.serialize_entry("ear.veraison.policy-claims", &self.policy_claims)?;
+            if !self.attester_claims.is_empty() {
+                map.serialize_entry("ear_attester_claims", &self.attester_claims)?;
+            }
+
+            if !self.verifier_claims.is_empty() {
+                map.serialize_entry("ear_verifier_claims", &self.verifier_claims)?;
+            }
+
+            if let Some(ka) = &self.key_attestation {
+                map.serialize_entry("ear_veraison_key_attestation", ka)?;
             }
 
             self.extensions.serialize_to_map_by_name(&mut map)?;
         } else {
-            // !is_human_readable
+            if let Some(p) = &self.profile {
+                map.serialize_entry(&265, p)?;
+            }
+
             map.serialize_entry(&1000, &self.status)?;
 
             if self.trust_vector.any_set() {
@@ -127,12 +168,20 @@ impl Serialize for Appraisal {
                 map.serialize_entry(&1003, &self.policy_ids)?;
             }
 
-            if !self.annotated_evidence.is_empty() {
-                map.serialize_entry(&-70000, &self.annotated_evidence)?;
+            if let Some(n) = &self.nonce {
+                map.serialize_entry(&10, n)?;
             }
 
-            if !self.policy_claims.is_empty() {
-                map.serialize_entry(&-70001, &self.policy_claims)?;
+            if !self.attester_claims.is_empty() {
+                map.serialize_entry(&1005, &self.attester_claims)?;
+            }
+
+            if !self.verifier_claims.is_empty() {
+                map.serialize_entry(&1006, &self.verifier_claims)?;
+            }
+
+            if let Some(ka) = &self.key_attestation {
+                map.serialize_entry(&-70002, ka)?;
             }
 
             self.extensions.serialize_to_map_by_key(&mut map)?;
@@ -175,21 +224,42 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
         loop {
             if self.is_human_readable {
                 match map.next_key::<&str>()? {
-                    Some("ear.status") => appraisal.status = map.next_value::<TrustTier>()?,
-                    Some("ear.trustworthiness-vector") => {
-                        appraisal.trust_vector = map.next_value::<TrustVector>()?
+                    Some("eat_profile") => appraisal.profile = Some(map.next_value::<String>()?),
+                    Some("ear_status") => appraisal.status = map.next_value::<TrustTier>()?,
+                    Some("ear_trustworthiness_vector") => {
+                        let trust_vector = map.next_value::<TrustVector>()?;
+                        if !trust_vector.any_set() {
+                            return Err(de::Error::custom(
+                                "ear_trustworthiness_vector must not be empty",
+                            ));
+                        }
+                        appraisal.trust_vector = trust_vector;
                     }
-                    Some("ear.appraisal-policy-ids") => {
-                        appraisal.policy_ids = map.next_value::<Vec<String>>()?;
+                    Some("ear_appraisal_policy_ids") => {
+                        let policy_ids = map.next_value::<Vec<String>>()?;
+                        if policy_ids.is_empty() {
+                            return Err(de::Error::custom(
+                                "ear_appraisal_policy_ids must not be empty",
+                            ));
+                        }
+                        appraisal.policy_ids = policy_ids;
                     }
-                    Some("ear.veraison.annotated-evidence") => {
-                        appraisal.annotated_evidence =
-                            map.next_value::<BTreeMap<String, RawValue>>()?
+                    Some("eat_nonce") => appraisal.nonce = Some(map.next_value::<Nonce>()?),
+                    Some("ear_attester_claims") => {
+                        let claims = map.next_value::<BTreeMap<String, RawValue>>()?;
+                        if claims.is_empty() {
+                            return Err(de::Error::custom("ear_attester_claims must not be empty"));
+                        }
+                        appraisal.attester_claims = claims;
                     }
-                    Some("ear.veraison.policy-claims") => {
-                        appraisal.policy_claims = map.next_value::<BTreeMap<String, RawValue>>()?
+                    Some("ear_verifier_claims") => {
+                        let claims = map.next_value::<BTreeMap<String, RawValue>>()?;
+                        if claims.is_empty() {
+                            return Err(de::Error::custom("ear_verifier_claims must not be empty"));
+                        }
+                        appraisal.verifier_claims = claims;
                     }
-                    Some("ear.veraison.key-attestation") => {
+                    Some("ear_veraison_key_attestation") => {
                         appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
                     Some(name) => appraisal
@@ -198,24 +268,60 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                     None => break,
                 }
             } else {
-                // !is_human_readable
-                match map.next_key::<i32>()? {
-                    Some(1000) => appraisal.status = map.next_value::<TrustTier>()?,
-                    Some(1001) => appraisal.trust_vector = map.next_value::<TrustVector>()?,
-                    Some(1003) => {
-                        appraisal.policy_ids = map.next_value::<Vec<String>>()?;
+                match map.next_key::<ClaimKey>()? {
+                    Some(ClaimKey::Integer(265)) => {
+                        appraisal.profile = Some(map.next_value::<String>()?)
                     }
-                    Some(-70000) => {
-                        appraisal.annotated_evidence =
-                            map.next_value::<BTreeMap<String, RawValue>>()?
+                    Some(ClaimKey::Integer(1000)) => {
+                        appraisal.status = map.next_value::<TrustTier>()?
                     }
-                    Some(-70001) => {
-                        appraisal.policy_claims = map.next_value::<BTreeMap<String, RawValue>>()?
+                    Some(ClaimKey::Integer(1001)) => {
+                        let trust_vector = map.next_value::<TrustVector>()?;
+                        if !trust_vector.any_set() {
+                            return Err(de::Error::custom(
+                                "ear_trustworthiness_vector must not be empty",
+                            ));
+                        }
+                        appraisal.trust_vector = trust_vector;
                     }
-                    Some(-70002) => {
+                    Some(ClaimKey::Integer(1003)) => {
+                        let policy_ids = map.next_value::<Vec<String>>()?;
+                        if policy_ids.is_empty() {
+                            return Err(de::Error::custom(
+                                "ear_appraisal_policy_ids must not be empty",
+                            ));
+                        }
+                        appraisal.policy_ids = policy_ids;
+                    }
+                    Some(ClaimKey::Integer(10)) => {
+                        appraisal.nonce = Some(map.next_value::<Nonce>()?)
+                    }
+                    Some(ClaimKey::Integer(1005)) => {
+                        let claims = map.next_value::<BTreeMap<String, RawValue>>()?;
+                        if claims.is_empty() {
+                            return Err(de::Error::custom("ear_attester_claims must not be empty"));
+                        }
+                        appraisal.attester_claims = claims;
+                    }
+                    Some(ClaimKey::Integer(1006)) => {
+                        let claims = map.next_value::<BTreeMap<String, RawValue>>()?;
+                        if claims.is_empty() {
+                            return Err(de::Error::custom("ear_verifier_claims must not be empty"));
+                        }
+                        appraisal.verifier_claims = claims;
+                    }
+                    Some(ClaimKey::Integer(-70002)) => {
                         appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
-                    Some(key) => appraisal.extensions.visit_map_entry_by_key(key, &mut map)?,
+                    Some(ClaimKey::Integer(key)) => appraisal
+                        .extensions
+                        .visit_map_entry_by_cbor_key(key, &mut map)?,
+                    Some(ClaimKey::Unsigned(key)) => appraisal
+                        .extensions
+                        .ignore_map_entry_by_unsigned_cbor_key(key, &mut map)?,
+                    Some(ClaimKey::Name(name)) => appraisal
+                        .extensions
+                        .visit_map_entry_by_name(&name, &mut map)?,
                     None => break,
                 }
             }
@@ -227,25 +333,153 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
 
 #[cfg(test)]
 mod test {
-    use crate::{claim, Appraisal};
+    use ciborium::value::{Integer, Value};
+    use ciborium::{de::from_reader, ser::into_writer};
 
-    /// `ear_appraisal_policy_ids` in draft-ietf-rats-ear (JSON examples use this URL).
-    const DRAFT_POLICY_ID_EXAMPLE: &str = "https://veraison.example/policy/1/60a0068d";
+    use crate::{claim, Appraisal, Nonce, RawValue};
+
+    pub(crate) const DRAFT_POLICY_ID_EXAMPLE: &str = "https://veraison.example/policy/1/60a0068d";
+
+    fn claim_value(cbor: &[u8], key: i32) -> Value {
+        let root: Value = from_reader(cbor).unwrap();
+        let Value::Map(entries) = root else {
+            panic!("expected CBOR map, got {root:?}");
+        };
+
+        entries
+            .iter()
+            .find(|(k, _)| *k == Value::Integer(Integer::from(key)))
+            .map(|(_, v)| v.clone())
+            .unwrap_or_else(|| panic!("map must contain claim key {key}"))
+    }
+
+    #[test]
+    fn profile_and_nonce_serde() {
+        let mut a = Appraisal::new();
+        a.profile = Some("http://arm.com/psa/2.0.0".to_string());
+        a.nonce = Some(Nonce::try_from("QUJDREVGR0hJSg".to_string()).unwrap());
+
+        let text = serde_json::to_string(&a).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            v.get("eat_profile").and_then(|p| p.as_str()),
+            Some("http://arm.com/psa/2.0.0"),
+        );
+        assert_eq!(
+            v.get("eat_nonce").and_then(|n| n.as_str()),
+            Some("QUJDREVGR0hJSg"),
+        );
+
+        let b: Appraisal = serde_json::from_str(&text).unwrap();
+        assert_eq!(a, b);
+
+        let mut json_to_cbor = Vec::new();
+        into_writer(&b, &mut json_to_cbor).unwrap();
+        assert_eq!(
+            claim_value(&json_to_cbor, 10),
+            Value::Bytes(b"ABCDEFGHIJ".to_vec()),
+        );
+
+        let mut a = Appraisal::new();
+        a.profile = Some("http://arm.com/psa/2.0.0".to_string());
+        a.nonce = Some(
+            Nonce::try_from([0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef].as_slice()).unwrap(),
+        );
+
+        let mut buf = Vec::new();
+        into_writer(&a, &mut buf).unwrap();
+        assert_eq!(
+            claim_value(&buf, 265),
+            Value::Text("http://arm.com/psa/2.0.0".to_string()),
+        );
+        assert_eq!(
+            claim_value(&buf, 10),
+            Value::Bytes(vec![0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef]),
+        );
+
+        let b: Appraisal = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(a, b);
+        let cbor_to_json = serde_json::to_value(&b).unwrap();
+        assert_eq!(cbor_to_json["eat_nonce"], "3q2-796tvu8");
+    }
+
+    #[test]
+    fn attester_and_verifier_claims_serde() {
+        // from the Project Veraison extension example in draft-ietf-rats-ear-04 4.5.1
+        const DRAFT_EXAMPLE: &str = r#"{
+            "ear_status": "contraindicated",
+            "ear_trustworthiness_vector": {
+                "instance-identity": 2,
+                "executables": 96,
+                "hardware": 2
+            },
+            "ear_appraisal_policy_ids": [
+                "https://veraison.example/policy/1/60a0068d"
+            ],
+            "ear_attester_claims": {
+                "eat-profile": "http://arm.com/psa/2.0.0",
+                "psa-client-id": 1,
+                "psa-security-lifecycle": 12288
+            },
+            "ear_verifier_claims": {
+                "psa-certified": {
+                    "certificate-number": "1234567890123-12345",
+                    "test-lab": "Riscure"
+                }
+            }
+        }"#;
+
+        let a: Appraisal = serde_json::from_str(DRAFT_EXAMPLE).unwrap();
+
+        assert_eq!(
+            a.attester_claims.get("eat-profile"),
+            Some(&RawValue::String("http://arm.com/psa/2.0.0".to_string())),
+        );
+        assert_eq!(
+            a.attester_claims.get("psa-security-lifecycle"),
+            Some(&RawValue::Integer(12288)),
+        );
+        assert_eq!(
+            a.verifier_claims.get("psa-certified"),
+            Some(&RawValue::Map(vec![
+                (
+                    RawValue::String("certificate-number".to_string()),
+                    RawValue::String("1234567890123-12345".to_string()),
+                ),
+                (
+                    RawValue::String("test-lab".to_string()),
+                    RawValue::String("Riscure".to_string()),
+                ),
+            ])),
+        );
+
+        let text = serde_json::to_string(&a).unwrap();
+        assert_eq!(
+            text.parse::<serde_json::Value>().unwrap(),
+            DRAFT_EXAMPLE.parse::<serde_json::Value>().unwrap(),
+        );
+
+        let mut buf = Vec::new();
+        into_writer(&a, &mut buf).unwrap();
+        assert!(matches!(claim_value(&buf, 1005), Value::Map(_)));
+        assert!(matches!(claim_value(&buf, 1006), Value::Map(_)));
+
+        let b: Appraisal = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(a, b);
+    }
 
     #[test]
     fn policy_ids_json_roundtrip() {
         let mut a = Appraisal::new();
         a.policy_ids = vec!["https://example/p/1".into(), "https://example/p/2".into()];
         let s = serde_json::to_string(&a).unwrap();
-        assert!(s.contains("ear.appraisal-policy-ids"));
+        assert!(s.contains("ear_appraisal_policy_ids"));
         let b: Appraisal = serde_json::from_str(&s).unwrap();
         assert_eq!(a.policy_ids, b.policy_ids);
     }
 
-    /// draft-ietf-rats-ear: `appraisal-policy-ids-label => [ + text ]` with label 1003 (CBOR).
-    /// This crate uses dotted claim names in JSON (`ear.*`) parallel to other EAR JSON fields.
     #[test]
-    fn policy_ids_json_shape_matches_ear_appraisal_policy_ids() {
+    fn policy_ids_json_shape_matches_draft() {
         let mut a = Appraisal::new();
         a.policy_ids = vec![
             DRAFT_POLICY_ID_EXAMPLE.into(),
@@ -255,19 +489,18 @@ mod test {
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
 
         let ids = v
-            .get("ear.appraisal-policy-ids")
-            .expect("ear.appraisal-policy-ids claim must be present");
+            .get("ear_appraisal_policy_ids")
+            .expect("ear_appraisal_policy_ids claim must be present");
         let arr = ids.as_array().expect("claim value must be a JSON array");
         assert_eq!(arr.len(), 2);
         assert!(arr.iter().all(|x| x.as_str().is_some()));
         assert_eq!(arr[0].as_str().unwrap(), DRAFT_POLICY_ID_EXAMPLE);
     }
 
-    /// Deserialize a minimal appraisal-shaped object using the same URL as the draft examples.
     #[test]
     fn policy_ids_json_deserialize_draft_example_document() {
         let s = format!(
-            r#"{{"ear.status":"none","ear.appraisal-policy-ids":["{0}"]}}"#,
+            r#"{{"ear_status":"none","ear_appraisal_policy_ids":["{0}"]}}"#,
             DRAFT_POLICY_ID_EXAMPLE
         );
         let a: Appraisal = serde_json::from_str(&s).unwrap();
@@ -275,15 +508,14 @@ mod test {
         assert_eq!(a.status.to_string(), "none");
     }
 
-    /// Optional claim: empty `policy_ids` must not emit the field (matches optional in CDDL).
     #[test]
     fn policy_ids_omitted_when_empty_json() {
         let a = Appraisal::new();
         let s = serde_json::to_string(&a).unwrap();
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
         assert!(
-            v.get("ear.appraisal-policy-ids").is_none(),
-            "empty policy_ids must omit ear.appraisal-policy-ids: {v}"
+            v.get("ear_appraisal_policy_ids").is_none(),
+            "empty policy_ids must omit ear_appraisal_policy_ids: {v}"
         );
     }
 
@@ -299,7 +531,6 @@ mod test {
         assert_eq!(a.policy_ids, b.policy_ids);
     }
 
-    /// CBOR map must use claim key 1003 for appraisal policy identifiers (draft-ietf-rats-ear).
     #[test]
     fn policy_ids_cbor_uses_claim_key_1003_array_of_text() {
         use ciborium::value::{Integer, Value};
@@ -332,10 +563,55 @@ mod test {
     }
 
     #[test]
+    fn rejects_present_empty_claims() {
+        for (document, expected) in [
+            (
+                r#"{"ear_status":"none","ear_trustworthiness_vector":{}}"#,
+                "ear_trustworthiness_vector must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_appraisal_policy_ids":[]}"#,
+                "ear_appraisal_policy_ids must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_attester_claims":{}}"#,
+                "ear_attester_claims must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_verifier_claims":{}}"#,
+                "ear_verifier_claims must not be empty",
+            ),
+        ] {
+            let error = serde_json::from_str::<Appraisal>(document).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+
+        let value = Value::Map(vec![
+            (
+                Value::Integer(Integer::from(1000)),
+                Value::Integer(Integer::from(0)),
+            ),
+            (
+                Value::Integer(Integer::from(1003)),
+                Value::Array(Vec::new()),
+            ),
+        ]);
+        let mut buf = Vec::new();
+        into_writer(&value, &mut buf).unwrap();
+        let error = from_reader::<Appraisal, _>(buf.as_slice()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("ear_appraisal_policy_ids must not be empty"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn serde() {
         let mut appraisal = Appraisal::new();
         let val = serde_json::to_string(&appraisal).unwrap();
-        assert_eq!(val, r#"{"ear.status":"none"}"#);
+        assert_eq!(val, r#"{"ear_status":"none"}"#);
 
         appraisal
             .trust_vector
@@ -345,7 +621,7 @@ mod test {
         let val = serde_json::to_string(&appraisal).unwrap();
         assert_eq!(
             val,
-            r#"{"ear.status":"none","ear.trustworthiness-vector":{"configuration":2}}"#
+            r#"{"ear_status":"none","ear_trustworthiness_vector":{"configuration":2}}"#
         );
 
         let appraisal2: Appraisal = serde_json::from_str(val.as_str()).unwrap();

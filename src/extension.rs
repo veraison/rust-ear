@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
 use lazy_static::lazy_static;
-use serde::de::Error as _;
+use serde::de::{self, Error as _, IgnoredAny, Visitor};
 
 use crate::appraisal::Appraisal;
 use crate::ear::Ear;
@@ -30,6 +30,59 @@ impl ExtensionEntry {
 enum CollectedKey {
     Key(i32),
     Name(String),
+}
+
+/// A CWT claim key can be either an integer or text.
+///
+/// Unknown claims of either form must remain parseable so they can be ignored as required by
+/// draft-ietf-rats-ear-04, Section 4:
+/// <https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#section-4>.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ClaimKey {
+    Integer(i64),
+    Unsigned(u64),
+    Name(String),
+}
+
+impl<'de> serde::Deserialize<'de> for ClaimKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(ClaimKeyVisitor)
+    }
+}
+
+struct ClaimKeyVisitor;
+
+impl Visitor<'_> for ClaimKeyVisitor {
+    type Value = ClaimKey;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("an integer or text claim key")
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(ClaimKey::Integer(value))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(match i64::try_from(value) {
+            Ok(value) => ClaimKey::Integer(value),
+            Err(_) => ClaimKey::Unsigned(value),
+        })
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(ClaimKey::Name(value.to_string()))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(ClaimKey::Name(value))
+    }
 }
 
 #[derive(Debug)]
@@ -218,6 +271,35 @@ impl<'de> Extensions {
 
         self.set_by_key(key, value).map_err(A::Error::custom)?;
 
+        Ok(())
+    }
+
+    pub(crate) fn visit_map_entry_by_cbor_key<A>(
+        &mut self,
+        key: i64,
+        mut map: A,
+    ) -> Result<(), A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        match i32::try_from(key) {
+            Ok(key) => self.visit_map_entry_by_key(key, map),
+            Err(_) => {
+                map.next_value::<IgnoredAny>()?;
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn ignore_map_entry_by_unsigned_cbor_key<A>(
+        &mut self,
+        _key: u64,
+        mut map: A,
+    ) -> Result<(), A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        map.next_value::<IgnoredAny>()?;
         Ok(())
     }
 
