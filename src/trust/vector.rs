@@ -212,19 +212,19 @@ impl<'de> Visitor<'de> for TrustVectorVisitor {
         loop {
             if self.is_human_readable {
                 match access.next_entry::<&str, i8>()? {
-                    Some((k, val)) => match tv.mut_by_name(k).map_err(de::Error::custom) {
-                        Ok(claim) => claim.set(val),
-                        Err(e) => return Err(e),
-                    },
+                    Some((k, val)) => {
+                        let claim = tv.mut_by_name(k).map_err(de::Error::custom)?;
+                        claim.set(val)
+                    }
                     None => break,
                 }
             } else {
                 // !is_human_readable
                 match access.next_entry::<i32, i8>()? {
-                    Some((k, val)) => match tv.mut_by_key(k).map_err(de::Error::custom) {
-                        Ok(claim) => claim.set(val),
-                        Err(e) => return Err(e),
-                    },
+                    Some((k, val)) => {
+                        let claim = tv.mut_by_key(k).map_err(de::Error::custom)?;
+                        claim.set(val)
+                    }
                     None => break,
                 }
             }
