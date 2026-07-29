@@ -11,7 +11,7 @@ categories = ["data-structures", "encoding"]
 
 
 [package.metadata.docs.rs]
-features = ["cose", "jwt"]
+features = ["cose", "jwt", "log"]
 
 
 [dependencies]
@@ -27,9 +27,14 @@ phf = { version = "0.13.1", features = ["macros", "serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.93", features = ["raw_value"] }
 thiserror = "2.0.16"
+tracing = { version = "0.1.44", optional = true }
 
 
 [features]
 default = ["cose", "jwt"]
 cose = ["dep:cose-rust", "dep:openssl", "dep:jsonwebtoken"]
 jwt = ["dep:jsonwebtoken"]
+
+# This feature is used to enable logging in the library.
+# Some of the functions have silent behaviors, so logging is useful to debug and trace.
+log = ["dep:tracing"]

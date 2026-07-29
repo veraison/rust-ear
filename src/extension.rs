@@ -243,6 +243,8 @@ impl<'de> Extensions {
         A: serde::de::MapAccess<'de>,
     {
         if !self.have_name(name) {
+            #[cfg(feature = "log")]
+            tracing::trace!(claim.name = name, "ignoring unknown EAR claim");
             self.collected.insert(
                 CollectedKey::Name(name.to_string()),
                 map.next_value::<RawValue>()?,
@@ -262,6 +264,8 @@ impl<'de> Extensions {
         A: serde::de::MapAccess<'de>,
     {
         if !self.have_key(&key) {
+            #[cfg(feature = "log")]
+            tracing::trace!(claim.key = key, "ignoring unknown EAR claim");
             self.collected
                 .insert(CollectedKey::Key(key), map.next_value::<RawValue>()?);
             return Ok(());
@@ -285,6 +289,8 @@ impl<'de> Extensions {
         match i32::try_from(key) {
             Ok(key) => self.visit_map_entry_by_key(key, map),
             Err(_) => {
+                #[cfg(feature = "log")]
+                tracing::trace!(claim.key = key, "ignoring out-of-range unknown EAR claim");
                 map.next_value::<IgnoredAny>()?;
                 Ok(())
             }
@@ -299,6 +305,8 @@ impl<'de> Extensions {
     where
         A: serde::de::MapAccess<'de>,
     {
+        #[cfg(feature = "log")]
+        tracing::trace!(claim.key = _key, "ignoring out-of-range unknown EAR claim");
         map.next_value::<IgnoredAny>()?;
         Ok(())
     }
