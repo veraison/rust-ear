@@ -14,6 +14,27 @@ respectively).
 [draft-ietf-rats-ear-04]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
 [draft-ietf-rats-ar4si]: https://datatracker.ietf.org/doc/draft-ietf-rats-ar4si/
 
+# Crate features
+
+- **`cose`** *(enabled by default)*: signing and verification of EARs as `COSE_Sign1`
+  (CBOR) tokens.
+- **`jwt`** *(enabled by default)*: signing and verification of EARs as JWT (JSON) tokens.
+- **`log`**: makes the crate's silent behaviors observable by emitting [`tracing`] events
+  for them. Currently, this covers claims that are dropped or cached without failing
+  deserialization, e.g. an unregistered extension or a CBOR key outside the `i32` range;
+  these are reported at the `TRACE` level. The crate only emits events, it never installs
+  a subscriber, so the application decides whether and how they are collected. With the
+  feature disabled, no event code and no `tracing` dependency are compiled in.
+
+To use the crate with CBOR support only, and with logging enabled:
+
+```toml
+[dependencies]
+ear = { version = "0.5", default-features = false, features = ["cose", "log"] }
+```
+
+[`tracing`]: https://docs.rs/tracing
+
 # Examples
 
 ## Signing

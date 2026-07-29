@@ -28,6 +28,7 @@ jobs:
           - ""                                 # default (cose + jwt)
           - "--no-default-features --features cose"
           - "--no-default-features --features jwt"
+          - "--no-default-features --features log"
           - "--no-default-features"
           - "--all-features"
     steps:
