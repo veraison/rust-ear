@@ -17,14 +17,14 @@ features = ["cose", "jwt"]
 [dependencies]
 base64 = "0.22.1"
 ciborium = "0.2.0"
-cose-rust = {version = "0.1.2", optional = true}
+cose-rust = { version = "0.1.2", optional = true }
 hex = "0.4.3"
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"], optional = true }
 lazy_static = "1.5.0"
-openssl = {version = "0.10.54", optional = true}
-phf = {version = "0.13.1", features = ["macros", "serde"]}
-serde = {version = "1.0", features = ["derive"]}
-serde_json = {version = "1.0.93", features = ["raw_value"]}
+openssl = { version = "0.10.54", optional = true }
+phf = { version = "0.13.1", features = ["macros", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0.93", features = ["raw_value"] }
 thiserror = "2.0.16"
 
 
@@ -32,4 +32,3 @@ thiserror = "2.0.16"
 default = ["cose", "jwt"]
 cose = ["dep:cose-rust", "dep:openssl", "dep:jsonwebtoken"]
 jwt = ["dep:jsonwebtoken"]
-
