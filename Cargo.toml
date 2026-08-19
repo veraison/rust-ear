@@ -23,7 +23,7 @@ hex = "0.4.3"
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"], optional = true }
 lazy_static = "1.5.0"
 openssl = { version = "0.10.54", optional = true }
-phf = { version = "0.13.1", features = ["macros", "serde"] }
+phf = { version = "0.14.0", features = ["macros", "serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.93", features = ["raw_value"] }
 thiserror = "2.0.16"
