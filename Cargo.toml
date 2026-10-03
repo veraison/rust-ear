@@ -38,3 +38,8 @@ jwt = ["dep:jsonwebtoken"]
 # This feature is used to enable logging in the library.
 # Some of the functions have silent behaviors, so logging is useful to debug and trace.
 log = ["dep:tracing"]
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+multiple_crate_versions = "allow"
