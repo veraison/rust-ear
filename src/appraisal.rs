@@ -367,7 +367,7 @@ mod test {
         );
         assert_eq!(
             v.get("eat_nonce").and_then(|n| n.as_str()),
-            Some("QUJDREVGR0hJSg"),
+            Some("QUJDREVGR0hJSg=="),
         );
 
         let b: Appraisal = serde_json::from_str(&text).unwrap();
@@ -400,7 +400,7 @@ mod test {
         let b: Appraisal = from_reader(buf.as_slice()).unwrap();
         assert_eq!(a, b);
         let cbor_to_json = serde_json::to_value(&b).unwrap();
-        assert_eq!(cbor_to_json["eat_nonce"], "3q2-796tvu8");
+        assert_eq!(cbor_to_json["eat_nonce"], "3q2+796tvu8=");
     }
 
     #[test]
