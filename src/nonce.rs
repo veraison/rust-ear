@@ -9,12 +9,12 @@ use serde::ser::{Serialize, SerializeSeq as _, Serializer};
 use crate::base64::Bytes;
 use crate::error::Error;
 
-/// The encoding rules come from RFC 9711, Section 4.1, as referenced by
-/// draft-ietf-rats-ear-04, Sections 3 and 3.1:
-/// <https://www.rfc-editor.org/rfc/rfc9711.html#section-4.1>.
+/// The canonical JWT/JSON representation of `eat_nonce` is defined by draft-ietf-rats-ear-04:
+/// when serialized as JWT, the nonce MUST be base64 encoded.
 ///
-/// Keep the decoded bytes internally so the same nonce can be serialized as base64url text in
-/// JSON and as a byte string in CBOR.
+/// The decoded bytes are kept internally so the nonce can be serialized as standard Base64 text in
+/// JSON/JWT and as a byte string in CBOR. Compatibility decoding may accept legacy URL-safe inputs,
+/// but canonical output remains standard Base64.
 #[derive(Debug, PartialEq)]
 struct OneNonce(Bytes);
 
@@ -40,12 +40,22 @@ impl TryFrom<&Vec<u8>> for OneNonce {
     }
 }
 
+fn decode_nonce(v: &str) -> Result<Vec<u8>, Error> {
+    // draft-ietf-rats-ear-04 requires standard Base64 when the nonce is serialized as JWT/JSON.
+    // The legacy URL-safe decoders below are compatibility-only: they allow older inputs to parse,
+    // but canonical output remains standard Base64 and is the form that should be emitted.
+    general_purpose::STANDARD
+        .decode(v)
+        .or_else(|_| general_purpose::URL_SAFE_NO_PAD.decode(v))
+        .or_else(|_| general_purpose::URL_SAFE.decode(v))
+        .map_err(|_| Error::ParseError("nonce must be base64 encoded".to_string()))
+}
+
 impl TryFrom<&str> for OneNonce {
     type Error = Error;
 
     fn try_from(v: &str) -> Result<Self, Error> {
-        let bytes = Bytes::try_from(v)
-            .map_err(|_| Error::ParseError("nonce must be base64url encoded".to_string()))?;
+        let bytes = decode_nonce(v)?;
         OneNonce::try_from(bytes.as_slice())
     }
 }
@@ -60,14 +70,14 @@ impl TryFrom<String> for OneNonce {
 
 impl fmt::Display for OneNonce {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&general_purpose::URL_SAFE_NO_PAD.encode(self.0.as_slice()))
+        f.write_str(&general_purpose::STANDARD.encode(self.0.as_slice()))
     }
 }
 
 impl PartialEq<&str> for OneNonce {
     fn eq(&self, other: &&str) -> bool {
-        Bytes::try_from(*other)
-            .map(|bytes| self.0 == bytes)
+        decode_nonce(other)
+            .map(|bytes| self.0.as_slice() == bytes.as_slice())
             .unwrap_or(false)
     }
 }
@@ -83,7 +93,14 @@ impl Serialize for OneNonce {
     where
         S: Serializer,
     {
-        self.0.serialize(serializer)
+        if serializer.is_human_readable() {
+            serializer.collect_str(&base64::display::Base64Display::new(
+                self.0.as_slice(),
+                &general_purpose::STANDARD,
+            ))
+        } else {
+            serializer.serialize_bytes(self.0.as_slice())
+        }
     }
 }
 
@@ -122,8 +139,8 @@ impl Visitor<'_> for OneNonceVisitor {
 
 /// Echoed back by the verifier to provide freshness.
 ///
-/// JSON uses base64url text and CBOR uses byte strings, as defined by [RFC 9711, Section 4.1] and
-/// referenced by [draft-ietf-rats-ear-04, Sections 3 and 3.1].
+/// JSON uses standard base64 text and CBOR uses byte strings, as defined by [RFC 9711, Section 4.1]
+/// and referenced by [draft-ietf-rats-ear-04, Sections 3 and 3.1].
 ///
 /// [RFC 9711, Section 4.1]: https://www.rfc-editor.org/rfc/rfc9711.html#section-4.1
 /// [draft-ietf-rats-ear-04, Sections 3 and 3.1]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#section-3
@@ -332,8 +349,8 @@ mod test {
 
     #[test]
     fn from_str() {
-        let n = Nonce::try_from("3q2-796tvu8").unwrap();
-        assert_eq!(n.to_string(), "3q2-796tvu8");
+        let n = Nonce::try_from("3q2+796tvu8=").unwrap();
+        assert_eq!(n.to_string(), "3q2+796tvu8=");
 
         let e = Nonce::try_from("AQIDBA").unwrap_err();
         assert_eq!(
@@ -341,18 +358,15 @@ mod test {
             "parse error: nonce must be between 8 and 64 bytes"
         );
 
-        let e = Nonce::try_from("not base64url!").unwrap_err();
-        assert_eq!(
-            e.to_string(),
-            "parse error: nonce must be base64url encoded"
-        );
+        let e = Nonce::try_from("not base64!").unwrap_err();
+        assert_eq!(e.to_string(), "parse error: nonce must be base64 encoded");
     }
 
     #[test]
     fn from_bytes() {
         let n =
             Nonce::try_from([0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef].as_slice()).unwrap();
-        assert_eq!(n.to_string(), "3q2-796tvu8");
+        assert_eq!(n.to_string(), "3q2+796tvu8=");
 
         let e = Nonce::try_from([0xde, 0xad, 0xbe, 0xef].as_slice()).unwrap_err();
         assert_eq!(
@@ -379,10 +393,10 @@ mod test {
 
     #[test]
     fn from_str_slice() {
-        let n = Nonce::try_from(["3q2-796tvu8", "q63K_qutyv4"].as_slice()).unwrap();
-        assert_eq!(n.to_string(), "[3q2-796tvu8, q63K_qutyv4]");
+        let n = Nonce::try_from(["3q2+796tvu8=", "q63K/qutyv4="].as_slice()).unwrap();
+        assert_eq!(n.to_string(), "[3q2+796tvu8=, q63K/qutyv4=]");
 
-        let e = Nonce::try_from(["3q2-796tvu8", "AQIDBA"].as_slice()).unwrap_err();
+        let e = Nonce::try_from(["3q2+796tvu8=", "AQIDBA"].as_slice()).unwrap_err();
         assert_eq!(
             e.to_string(),
             "parse error: item 1: nonce must be between 8 and 64 bytes"
@@ -399,7 +413,7 @@ mod test {
             .as_slice(),
         )
         .unwrap();
-        assert_eq!(n.to_string(), "[3q2-796tvu8, q63K_qutyv4]");
+        assert_eq!(n.to_string(), "[3q2+796tvu8=, q63K/qutyv4=]");
 
         let e = Nonce::try_from(
             [
@@ -421,10 +435,10 @@ mod test {
         let n = Nonce::try_from(bytes.as_slice()).unwrap();
         assert_eq!(n, bytes.as_slice());
         assert_ne!(n, &[0xde, 0xad][..]);
-        assert_eq!(n, "3q2-796tvu8");
+        assert_eq!(n, "3q2+796tvu8=");
 
-        let n = Nonce::try_from("3q2-796tvu8").unwrap();
-        assert_eq!(n, "3q2-796tvu8");
+        let n = Nonce::try_from("3q2+796tvu8=").unwrap();
+        assert_eq!(n, "3q2+796tvu8=");
         assert_ne!(n, "AQIDBA");
         assert_eq!(n, bytes.as_slice());
 
@@ -439,7 +453,7 @@ mod test {
         let n = Nonce(Vec::new());
         assert!(n.is_empty());
 
-        let n = Nonce::try_from("3q2-796tvu8").unwrap();
+        let n = Nonce::try_from("3q2+796tvu8=").unwrap();
         assert!(!n.is_empty());
     }
 
@@ -449,7 +463,7 @@ mod test {
         let n = Nonce::try_from(bytes.as_slice()).unwrap();
 
         let val = serde_json::to_string(&n).unwrap();
-        assert_eq!(val, r#""3q2-796tvu8""#);
+        assert_eq!(val, r#""3q2+796tvu8=""#);
         let json_nonce: Nonce = serde_json::from_str(&val).unwrap();
         assert_eq!(json_nonce, n);
 
@@ -465,7 +479,7 @@ mod test {
         let cbor_nonce: Nonce = from_reader(buf.as_slice()).unwrap();
         assert_eq!(cbor_nonce, n);
 
-        let from_json: Nonce = serde_json::from_str(r#""3q2-796tvu8""#).unwrap();
+        let from_json: Nonce = serde_json::from_str(r#""3q2+796tvu8=""#).unwrap();
         let mut cross_format = Vec::new();
         into_writer(&from_json, &mut cross_format).unwrap();
         assert_eq!(cross_format, buf);
@@ -483,9 +497,9 @@ mod test {
         ]
         );
 
-        let n = Nonce::try_from(["3q2-796tvu8", "q63K_qutyv4"].as_slice()).unwrap();
+        let n = Nonce::try_from(["3q2+796tvu8=", "q63K/qutyv4="].as_slice()).unwrap();
         let val = serde_json::to_string(&n).unwrap();
-        assert_eq!(val, r#"["3q2-796tvu8","q63K_qutyv4"]"#);
+        assert_eq!(val, r#"["3q2+796tvu8=","q63K/qutyv4="]"#);
 
         let mut buf: Vec<u8> = Vec::new();
         into_writer(&n, &mut buf).unwrap();
