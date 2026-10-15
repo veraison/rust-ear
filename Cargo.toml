@@ -20,7 +20,8 @@ ciborium = "0.2.0"
 cmw = "0.1.2"
 cose-rust = { version = "0.1.2", optional = true }
 hex = "0.4.3"
-jsonwebtoken = { version = "11", features = ["aws_lc_rs"], optional = true }
+jsonwebtoken = { version = "11", default-features = false, features = ["use_pem"], optional = true }
+jsonwebtoken-openssl = { version = "2.0.0", optional = true }
 lazy_static = "1.5.0"
 openssl = { version = "0.10.54", optional = true }
 phf = { version = "0.14.0", features = ["macros", "serde"] }
@@ -31,9 +32,15 @@ tracing = { version = "0.1.44", optional = true }
 
 
 [features]
-default = ["cose", "jwt"]
+default = ["cose", "jwt", "aws-lc-rs"]
 cose = ["dep:cose-rust", "dep:openssl", "dep:jsonwebtoken"]
 jwt = ["dep:jsonwebtoken"]
+
+# jsonwebtoken's JWT crypto is backed by a pluggable CryptoProvider. 
+
+# aws-lc-rs remains the (the previous hardcoded default), and openssl requires ear to install the provider itself before any cryptographic operations.
+aws-lc-rs = ["jwt", "jsonwebtoken/aws_lc_rs"]
+openssl = ["jwt", "dep:jsonwebtoken-openssl"]
 
 # This feature is used to enable logging in the library.
 # Some of the functions have silent behaviors, so logging is useful to debug and trace.

@@ -17,4 +17,4 @@ jobs:
   rust:
     uses: veraison/ci/.github/workflows/rust.yml@main
     with:
-      features: '["", "--no-default-features --features cose", "--no-default-features --features jwt", "--no-default-features --features log", "--no-default-features", "--all-features"]'
+      features: '["", "--no-default-features --features cose", "--no-default-features --features jwt,aws-lc-rs", "--no-default-features --features jwt,openssl", "--no-default-features --features log", "--no-default-features", "--all-features"]'

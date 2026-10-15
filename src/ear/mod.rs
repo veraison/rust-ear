@@ -441,14 +441,14 @@ pub mod test {
     }
     "#;
 
-    #[cfg(any(feature = "cose", feature = "jwt"))]
+    #[cfg(any(feature = "cose", feature = "aws-lc-rs", feature = "openssl"))]
     pub const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
 6yjQCRV35J4TUY4idLgiCu6EyLqhRANCAAQbx8C533c2AKDwL/RtjVipVnnM2WRv
 5w2wZNCJrubSK0StYKJ71CikDgkhw8M90ojfRIowqpl0uLA3kW3PEZy9
 -----END PRIVATE KEY-----
 ";
-    #[cfg(any(feature = "cose", feature = "jwt"))]
+    #[cfg(any(feature = "cose", feature = "aws-lc-rs", feature = "openssl"))]
     pub const VERIF_KEY: &str = r#"
     {
         "kty":"EC",

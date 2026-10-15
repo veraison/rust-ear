@@ -214,7 +214,8 @@
 //! whose expiration time has passed.
 //!
 //! ```
-//! # #[cfg(feature = "jwt")] {
+//! // Signing/verification needs a crypto provider backend compiled in;
+//! # #[cfg(any(feature = "aws-lc-rs", feature = "openssl"))] {
 //! use ear::{Ear, Algorithm, Appraisal};
 //! use std::time::{SystemTime, Duration, UNIX_EPOCH};
 //!
