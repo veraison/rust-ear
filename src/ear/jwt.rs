@@ -6,6 +6,18 @@ use crate::algorithm::Algorithm;
 use crate::error::Error;
 use crate::Ear;
 
+/// when jsonwebtoken's CryptoProvider is selected as Openssl, we need to install the provider itself before any cryptographic operations.
+#[cfg(feature = "openssl")]
+fn ensure_provider_installed() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        let _ = jsonwebtoken_openssl::install_default();
+    });
+}
+
+#[cfg(not(feature = "openssl"))]
+fn ensure_provider_installed() {}
+
 impl Ear {
     /// Decode an EAR from a JWT token, verifying the signature using the specified JWK-encoded
     /// key.
@@ -33,6 +45,7 @@ impl Ear {
         alg: jwt::Algorithm,
         key: &jwt::DecodingKey,
     ) -> Result<Self, Error> {
+        ensure_provider_installed();
         let mut validation = jwt::Validation::new(alg);
         // the default validation sets "exp" as a mandatory claim, which an EAR is not required to
         // have.
@@ -57,6 +70,7 @@ impl Ear {
         header: &jwt::Header,
         key: &[u8],
     ) -> Result<String, Error> {
+        ensure_provider_installed();
         let keyfunc: fn(&[u8]) -> Result<jwt::EncodingKey, jwt::errors::Error> = match header.alg {
             jwt::Algorithm::ES256 => jwt::EncodingKey::from_ec_pem,
             jwt::Algorithm::ES384 => jwt::EncodingKey::from_ec_pem,
@@ -90,6 +104,7 @@ impl Ear {
         header: &jwt::Header,
         key: &[u8],
     ) -> Result<String, Error> {
+        ensure_provider_installed();
         let ek = match header.alg {
             jwt::Algorithm::ES256 => jwt::EncodingKey::from_ec_der(key),
             jwt::Algorithm::ES384 => jwt::EncodingKey::from_ec_der(key),
@@ -127,7 +142,9 @@ fn alg_to_jwt_alg(alg: &Algorithm) -> Result<jwt::Algorithm, Error> {
     }
 }
 
-#[cfg(test)]
+// These tests exercise real signing/verification, which requires a crypto
+// provider to be compiled in.
+#[cfg(all(test, any(feature = "aws-lc-rs", feature = "openssl")))]
 #[rustfmt::skip::macros(vec)]
 mod test {
     use super::*;
