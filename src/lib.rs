@@ -65,6 +65,7 @@
 //!         status: None,
 //!         status_details: Vec::new(),
 //!         topology: None,
+//!         input_digest: None,
 //!         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
 //!         extensions: Extensions::new(),
 //!     };
@@ -298,6 +299,7 @@
 //!         nonce: None,
 //!         status: None,
 //!         topology: None,
+//!         input_digest: None,
 //!         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
 //!         extensions: Extensions::new(),
 //!     };
@@ -331,6 +333,7 @@
 mod algorithm;
 mod appraisal;
 mod base64;
+mod digest;
 mod ear;
 mod error;
 mod extension;
@@ -343,6 +346,8 @@ mod trust;
 pub use self::algorithm::Algorithm;
 pub use self::appraisal::Appraisal;
 pub use self::base64::Bytes;
+pub use self::digest::Digest;
+pub use self::digest::DigestAlgorithm;
 #[cfg(feature = "cose")]
 pub use self::ear::cose::new_cose_header;
 #[cfg(feature = "jwt")]

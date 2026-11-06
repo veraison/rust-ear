@@ -270,6 +270,7 @@ mod test {
             status: None,
             status_details: Vec::new(),
             topology: None,
+            input_digest: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),
         };

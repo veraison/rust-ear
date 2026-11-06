@@ -10,6 +10,7 @@ use serde::{
 };
 
 use crate::appraisal::Appraisal;
+use crate::digest::Digest;
 use crate::error::Error;
 use crate::extension::{get_profile, ClaimKey, Extensions};
 use crate::id::VerifierID;
@@ -82,6 +83,12 @@ pub struct Ear {
     ///
     /// [draft-ietf-rats-ear-04, Section 3]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#section-3
     pub topology: Option<BTreeMap<String, Vec<String>>>,
+    /// Digest of the appraisal request input that produced this EAR (`ear_input_digest` / 1008)
+    ///
+    /// See [draft-ietf-rats-ear-05, Section 3.1] for how it is computed and when it applies.
+    ///
+    /// [draft-ietf-rats-ear-05, Section 3.1]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-05.html#section-3.1
+    pub input_digest: Option<Digest>,
     /// extension claims
     pub extensions: Extensions,
 }
@@ -103,6 +110,7 @@ impl Ear {
             status_details: Vec::new(),
             raw_evidence: None,
             topology: None,
+            input_digest: None,
             extensions: Extensions::new(),
         }
     }
@@ -120,6 +128,7 @@ impl Ear {
             status_details: Vec::new(),
             raw_evidence: None,
             topology: None,
+            input_digest: None,
             extensions: Extensions::new(),
         };
 
@@ -330,6 +339,10 @@ impl Serialize for Ear {
                 map.serialize_entry("ear_device_topology", t)?
             }
 
+            if let Some(d) = &self.input_digest {
+                map.serialize_entry("ear_input_digest", d)?
+            }
+
             self.extensions.serialize_to_map_by_name(&mut map)?;
         } else {
             // !is_human_readable
@@ -359,6 +372,10 @@ impl Serialize for Ear {
 
             if let Some(t) = &self.topology {
                 map.serialize_entry(&1007, &t)?
+            }
+
+            if let Some(d) = &self.input_digest {
+                map.serialize_entry(&1008, &d)?
             }
 
             self.extensions.serialize_to_map_by_key(&mut map)?;
@@ -421,6 +438,9 @@ impl<'de> Visitor<'de> for EarVisitor {
                     Some("ear_device_topology") => {
                         ear.topology = Some(map.next_value::<BTreeMap<String, Vec<String>>>()?)
                     }
+                    Some("ear_input_digest") => {
+                        ear.input_digest = Some(map.next_value::<Digest>()?)
+                    }
                     Some(name) => ear.extensions.visit_map_entry_by_name(name, &mut map)?,
                     None => break,
                 }
@@ -450,6 +470,9 @@ impl<'de> Visitor<'de> for EarVisitor {
                     }
                     Some(ClaimKey::Integer(1007)) => {
                         ear.topology = Some(map.next_value::<BTreeMap<String, Vec<String>>>()?)
+                    }
+                    Some(ClaimKey::Integer(1008)) => {
+                        ear.input_digest = Some(map.next_value::<Digest>()?)
                     }
                     Some(ClaimKey::Integer(key)) => {
                         ear.extensions.visit_map_entry_by_cbor_key(key, &mut map)?
@@ -482,6 +505,7 @@ impl<'de> Visitor<'de> for EarVisitor {
 pub mod test {
     use super::*;
     use crate::claim;
+    use crate::digest::DigestAlgorithm;
     use crate::extension::*;
     use crate::raw::{RawValue, RawValueKind};
     use ciborium::value::{Integer, Value};
@@ -931,6 +955,128 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     }
 
     #[test]
+    fn input_digest_serde() {
+        const EAR_WITH_INPUT_DIGEST: &str = r#"
+        {
+            "eat_profile":"tag:ietf.org,2026:rats/ear#05",
+            "iat":1666529184,
+            "ear_verifier_id":{
+                "build":"vsts 0.0.1",
+                "developer":"https://veraison-project.org"
+            },
+            "ear_input_digest":[
+                "sha-256",
+                "TInrSlzsaz9jfL7abgvJ2roo2P93Jozst3x3OU_afNg"
+            ],
+            "submods":{
+                "test": {"ear_status": "affirming"}
+            }
+        }
+        "#;
+
+        let ear = serde_json::from_str::<Ear>(EAR_WITH_INPUT_DIGEST).unwrap();
+        let digest = ear.input_digest.as_ref().unwrap();
+        assert_eq!(digest.alg, DigestAlgorithm::Text("sha-256".to_string()));
+        assert_eq!(
+            digest.val.to_string(),
+            "4c89eb4a5cec6b3f637cbeda6e0bc9daba28d8ff77268cecb77c77394fda7cd8"
+        );
+
+        let text = serde_json::to_string(&ear).unwrap();
+        assert_eq!(
+            text.parse::<serde_json::Value>().unwrap(),
+            EAR_WITH_INPUT_DIGEST.parse::<serde_json::Value>().unwrap(),
+        );
+
+        let mut buf: Vec<u8> = Vec::new();
+        into_writer(&ear, &mut buf).unwrap();
+
+        let Value::Map(entries) = from_reader::<Value, _>(buf.as_slice()).unwrap() else {
+            panic!("expected a CBOR map");
+        };
+        let (_, value) = entries
+            .iter()
+            .find(|(k, _)| *k == Value::Integer(Integer::from(1008)))
+            .expect("map must contain claim key 1008");
+        assert_eq!(
+            *value,
+            Value::Array(vec![
+                Value::Text("sha-256".to_string()),
+                Value::Bytes(digest.val.0.clone()),
+            ]),
+        );
+
+        let ear2: Ear = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(ear, ear2);
+
+        let res = serde_json::from_str::<Ear>(&EAR_WITH_INPUT_DIGEST.replace(r#""sha-256","#, ""));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn unknown_claims_are_ignored() {
+        const EAR_WITH_UNKNOWN_CLAIMS: &str = r#"
+        {
+            "eat_profile":"tag:ietf.org,2026:rats/ear#05",
+            "iat":1666529184,
+            "ear_verifier_id":{
+                "build":"vsts 0.0.1",
+                "developer":"https://veraison-project.org"
+            },
+            "future_ear_claim":{"a": [1, 2]},
+            "submods":{
+                "test": {
+                    "ear_status": "affirming",
+                    "future_appraisal_claim": "x"
+                }
+            }
+        }
+        "#;
+
+        let ear = serde_json::from_str::<Ear>(EAR_WITH_UNKNOWN_CLAIMS).unwrap();
+        assert_eq!(ear.submods["test"].status, TrustTier::Affirming);
+
+        // unknown claims are not serialized back
+        let text = serde_json::to_string(&ear).unwrap();
+        let mut expected = EAR_WITH_UNKNOWN_CLAIMS
+            .parse::<serde_json::Value>()
+            .unwrap();
+        expected.as_object_mut().unwrap().remove("future_ear_claim");
+        expected["submods"]["test"]
+            .as_object_mut()
+            .unwrap()
+            .remove("future_appraisal_claim");
+        assert_eq!(text.parse::<serde_json::Value>().unwrap(), expected);
+
+        // integer keys, including ones that don't fit an extension key, in a CBOR appraisal
+        let mut buf = Vec::new();
+        into_writer(&ear, &mut buf).unwrap();
+        let Value::Map(mut entries) = from_reader::<Value, _>(buf.as_slice()).unwrap() else {
+            panic!("expected a CBOR map");
+        };
+        let (_, Value::Map(submods)) = entries
+            .iter_mut()
+            .find(|(k, _)| *k == Value::Integer(Integer::from(266)))
+            .unwrap()
+        else {
+            panic!("expected a submods map");
+        };
+        let Value::Map(appraisal) = &mut submods[0].1 else {
+            panic!("expected an appraisal map");
+        };
+        appraisal.push((Value::Integer(Integer::from(9999)), Value::Bool(true)));
+        appraisal.push((
+            Value::Integer(Integer::from(i64::MIN)),
+            Value::Text("ignored".to_string()),
+        ));
+
+        buf.clear();
+        into_writer(&Value::Map(entries), &mut buf).unwrap();
+        let ear2: Ear = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(ear, ear2);
+    }
+
+    #[test]
     fn expiration_serde_and_validation() {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -987,6 +1133,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
             status: None,
             status_details: Vec::new(),
             topology: None,
+            input_digest: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),
         };
