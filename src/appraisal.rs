@@ -21,8 +21,11 @@ pub struct Appraisal {
     pub profile: Option<String>,
     /// The overall status of the appraisal represented by an AR4SI trustworthiness tier
     ///
-    /// This is typically the lowest tier of all the claims that have been made (whose values have
-    /// been set), though a verifier may choose to set it to a lower value.
+    /// This is typically the least trustworthy tier of all the claims that have been made (whose
+    /// values have been set), though a verifier may choose to set it to a less trustworthy tier. It
+    /// defaults to [`TrustTier::Incomplete`], until the appraisal is done. draft-ietf-rats-ear-05
+    /// forbids [`TrustTier::None`], which [`crate::Ear`] rejects when serializing, and when parsing
+    /// an EAR with the [`crate::EAR_PROFILE`] profile.
     pub status: TrustTier,
     /// Reasons for the value of `status`, for people rather than for automated decisions
     /// (`ear_status_details` / 1010)
@@ -94,7 +97,7 @@ impl Appraisal {
     pub fn new() -> Appraisal {
         Appraisal {
             profile: None,
-            status: TrustTier::None,
+            status: TrustTier::Incomplete,
             status_details: Vec::new(),
             trust_vector: TrustVector::new(),
             trust_vector_details: BTreeMap::new(),
@@ -123,14 +126,17 @@ impl Appraisal {
         }
     }
 
-    /// Set the `status` based on the tiers of the claims in the trustworthiness vector
+    /// Set the `status` to the least trustworthy tier of the claims in the trustworthiness vector
+    ///
+    /// Claims in the [`TrustTier::None`] tier make no statement and don't affect the result. If no
+    /// claim has another tier, the status is [`TrustTier::Incomplete`], since draft-ietf-rats-ear-05
+    /// forbids a [`TrustTier::None`] status. A claim in the incomplete tier, e.g.
+    /// [`claim::VERIFIER_MALFUNCTION`](crate::claim::VERIFIER_MALFUNCTION), makes the status
+    /// incomplete.
     pub fn update_status_from_trust_vector(&mut self) {
-        for claim in self.trust_vector {
-            let claim_tier = claim.tier();
-            if self.status < claim_tier {
-                self.status = claim_tier
-            }
-        }
+        self.status = self
+            .most_severe_claim_tier()
+            .unwrap_or(TrustTier::Incomplete);
     }
 
     /// The tier of the least trustworthy claim in the trustworthiness vector, ignoring claims in
@@ -541,7 +547,7 @@ mod test {
     use ciborium::value::{Integer, Value};
     use ciborium::{de::from_reader, ser::into_writer};
 
-    use crate::{claim, Appraisal, Nonce, RawValue};
+    use crate::{claim, Appraisal, Nonce, RawValue, TrustTier};
 
     pub(crate) const DRAFT_POLICY_ID_EXAMPLE: &str = "https://veraison.example/policy/1/60a0068d";
 
@@ -956,10 +962,35 @@ mod test {
     }
 
     #[test]
+    fn update_status_from_trust_vector() {
+        let mut appraisal = Appraisal::new();
+        appraisal.update_status_from_trust_vector();
+        assert_eq!(appraisal.status, TrustTier::Incomplete);
+
+        appraisal
+            .trust_vector
+            .configuration
+            .set(claim::APPROVED_CONFIG);
+        appraisal.update_status_from_trust_vector();
+        assert_eq!(appraisal.status, TrustTier::Affirming);
+
+        // a NO_CLAIM value doesn't affect the result
+        appraisal.trust_vector.executables.set(claim::NO_CLAIM);
+        appraisal.update_status_from_trust_vector();
+        assert_eq!(appraisal.status, TrustTier::Affirming);
+
+        for value in [claim::VERIFIER_MALFUNCTION, claim::UNEXPECTED_EVIDENCE] {
+            appraisal.trust_vector.instance_identity.set(value);
+            appraisal.update_status_from_trust_vector();
+            assert_eq!(appraisal.status, TrustTier::Incomplete, "{value}");
+        }
+    }
+
+    #[test]
     fn serde() {
         let mut appraisal = Appraisal::new();
         let val = serde_json::to_string(&appraisal).unwrap();
-        assert_eq!(val, r#"{"ear_status":"none"}"#);
+        assert_eq!(val, r#"{"ear_status":"incomplete"}"#);
 
         appraisal
             .trust_vector
@@ -969,7 +1000,7 @@ mod test {
         let val = serde_json::to_string(&appraisal).unwrap();
         assert_eq!(
             val,
-            r#"{"ear_status":"none","ear_trustworthiness_vector":{"configuration":2}}"#
+            r#"{"ear_status":"incomplete","ear_trustworthiness_vector":{"configuration":2}}"#
         );
 
         let appraisal2: Appraisal = serde_json::from_str(val.as_str()).unwrap();

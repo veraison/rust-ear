@@ -22,10 +22,10 @@ pub mod cose;
 #[cfg(feature = "jwt")]
 pub mod jwt;
 
-/// EAT profile URI for [draft-ietf-rats-ear-04].
+/// EAT profile URI for [draft-ietf-rats-ear-05].
 ///
-/// [draft-ietf-rats-ear-04]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
-pub const EAR_PROFILE: &str = "tag:ietf.org,2026:rats/ear#04";
+/// [draft-ietf-rats-ear-05]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
+pub const EAR_PROFILE: &str = "tag:ietf.org,2026:rats/ear#05";
 
 /// An EAT Attestation Result
 ///
@@ -55,10 +55,18 @@ pub struct Ear {
     pub nonce: Option<Nonce>,
     /// Overall appraisal status for the composite attester (`ear_status` / 1000)
     ///
-    /// When set to anything other than [`TrustTier::None`], it must not be more trustworthy than
-    /// the worst status across all submod appraisals; [`Ear::validate`] enforces this. An explicit
-    /// [`TrustTier::None`] means the verifier makes no overall claim.
+    /// It must not be [`TrustTier::None`], nor more trustworthy than the worst status across all
+    /// submod appraisals; [`Ear::validate`] enforces both. Leave it unset to make no overall
+    /// claim.
     pub status: Option<TrustTier>,
+    /// Reasons for the value of `status`, for people rather than for automated decisions
+    /// (`ear_status_details` / 1010)
+    ///
+    /// A present list must be non-empty. Per [draft-ietf-rats-ear-05, Section 3.3], Relying Parties
+    /// must treat its contents as untrusted input.
+    ///
+    /// [draft-ietf-rats-ear-05, Section 3.3]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-05.html#section-3.3
+    pub status_details: Vec<String>,
     /// Raw evidence submitted for appraisal, wrapped in a Record CMW (`ear_raw_evidence` / 1002)
     ///
     /// [draft-ietf-rats-ear-04, Section 3] restricts this claim to `cmw-record`; CMW Collections
@@ -92,6 +100,7 @@ impl Ear {
             submods: BTreeMap::new(),
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             raw_evidence: None,
             topology: None,
             extensions: Extensions::new(),
@@ -108,6 +117,7 @@ impl Ear {
             submods: BTreeMap::new(),
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             raw_evidence: None,
             topology: None,
             extensions: Extensions::new(),
@@ -123,9 +133,47 @@ impl Ear {
     }
 
     /// Ensure that the EAR is valid
+    ///
+    /// Serializing an EAR, and so signing it, runs this check. Besides the checks applied when
+    /// parsing an EAR, it enforces the draft-ietf-rats-ear-05 rule that `ear_status` is never
+    /// [`TrustTier::None`], neither overall nor in any submod, whatever the profile. Parsing
+    /// enforces the rule only for the [`EAR_PROFILE`] profile, so that EARs from producers that
+    /// predate the rule can still be read.
     pub fn validate(&self) -> Result<(), Error> {
+        self.validate_received()?;
+        self.validate_no_none_status()
+    }
+
+    /// Checks that no `ear_status` is [`TrustTier::None`], as draft-ietf-rats-ear-05 requires.
+    fn validate_no_none_status(&self) -> Result<(), Error> {
+        if self.status == Some(TrustTier::None) {
+            return Err(Error::ValidationError(
+                "ear_status must not be none".to_string(),
+            ));
+        }
+
+        if let Some((label, _)) = self
+            .submods
+            .iter()
+            .find(|(_, appraisal)| appraisal.status == TrustTier::None)
+        {
+            return Err(Error::ValidationError(format!(
+                "submod {label}: ear_status must not be none"
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// The checks applied to a parsed EAR: all of [`Ear::validate`], except that a
+    /// [`TrustTier::None`] status is accepted unless the profile is [`EAR_PROFILE`].
+    fn validate_received(&self) -> Result<(), Error> {
         if self.profile.as_str() == "" {
             return Err(Error::ValidationError("empty profile".to_string()));
+        }
+
+        if self.profile == EAR_PROFILE {
+            self.validate_no_none_status()?;
         }
 
         if self.submods.is_empty() {
@@ -169,9 +217,9 @@ impl Ear {
             }
         }
 
-        if let Some(status) = self.status {
+        if let Some(status) = self.status.filter(|status| *status != TrustTier::None) {
             let worst = self.most_severe_submod_status();
-            if status != TrustTier::None && status < worst {
+            if status < worst {
                 return Err(Error::ValidationError(format!(
                     "status {status} is more trustworthy than the worst submod status {worst}"
                 )));
@@ -216,9 +264,13 @@ impl Ear {
 
     /// Set the status of each appraisal from its trustworthiness vector, and the overall `status`
     /// from the resulting submod statuses
+    ///
+    /// Only appraisals whose status is [`TrustTier::None`] or [`TrustTier::Incomplete`] (the
+    /// default for a new appraisal) are updated. An overall status that is already at least as
+    /// severe as the worst submod status is kept.
     pub fn update_status_from_trust_vector(&mut self) {
         for submod in self.submods.values_mut() {
-            if submod.status == TrustTier::None {
+            if matches!(submod.status, TrustTier::None | TrustTier::Incomplete) {
                 submod.update_status_from_trust_vector();
             }
         }
@@ -226,7 +278,7 @@ impl Ear {
         let worst = self.most_severe_submod_status();
         match self.status {
             // a status that is already at least as severe as the worst submod is left alone, as
-            // the verifier may have deliberately set it to a lower tier.
+            // the verifier may have deliberately set it to a less trustworthy tier.
             Some(status) if status >= worst => (),
             _ => self.status = Some(worst),
         }
@@ -262,6 +314,10 @@ impl Serialize for Ear {
                 map.serialize_entry("ear_status", s)?;
             }
 
+            if !self.status_details.is_empty() {
+                map.serialize_entry("ear_status_details", &self.status_details)?;
+            }
+
             if let Some(n) = &self.nonce {
                 map.serialize_entry("eat_nonce", n)?
             }
@@ -287,6 +343,10 @@ impl Serialize for Ear {
 
             if let Some(s) = &self.status {
                 map.serialize_entry(&1000, s)?;
+            }
+
+            if !self.status_details.is_empty() {
+                map.serialize_entry(&1010, &self.status_details)?;
             }
 
             if let Some(n) = &self.nonce {
@@ -346,6 +406,13 @@ impl<'de> Visitor<'de> for EarVisitor {
                     Some("exp") => ear.exp = Some(map.next_value::<i64>()?),
                     Some("ear_verifier_id") => ear.vid = map.next_value::<VerifierID>()?,
                     Some("ear_status") => ear.status = Some(map.next_value::<TrustTier>()?),
+                    Some("ear_status_details") => {
+                        let reasons = map.next_value::<Vec<String>>()?;
+                        if reasons.is_empty() {
+                            return Err(de::Error::custom("ear_status_details must not be empty"));
+                        }
+                        ear.status_details = reasons;
+                    }
                     Some("submods") => {
                         ear.submods = map.next_value::<BTreeMap<String, Appraisal>>()?
                     }
@@ -366,6 +433,13 @@ impl<'de> Visitor<'de> for EarVisitor {
                     Some(ClaimKey::Integer(1004)) => ear.vid = map.next_value::<VerifierID>()?,
                     Some(ClaimKey::Integer(1000)) => {
                         ear.status = Some(map.next_value::<TrustTier>()?)
+                    }
+                    Some(ClaimKey::Integer(1010)) => {
+                        let reasons = map.next_value::<Vec<String>>()?;
+                        if reasons.is_empty() {
+                            return Err(de::Error::custom("ear_status_details must not be empty"));
+                        }
+                        ear.status_details = reasons;
                     }
                     Some(ClaimKey::Integer(266)) => {
                         ear.submods = map.next_value::<BTreeMap<String, Appraisal>>()?
@@ -397,7 +471,7 @@ impl<'de> Visitor<'de> for EarVisitor {
                 .map_err(de::Error::custom)?
         }
 
-        ear.validate().map_err(de::Error::custom)?;
+        ear.validate_received().map_err(de::Error::custom)?;
 
         Ok(ear)
     }
@@ -415,14 +489,14 @@ pub mod test {
 
     const EAR_STRING: &str = r#"
     {
-        "eat_profile":"tag:ietf.org,2026:rats/ear#04",
+        "eat_profile":"tag:ietf.org,2026:rats/ear#05",
         "iat":1666529184,
         "ear_verifier_id":{
             "build":"vsts 0.0.1",
             "developer":"https://veraison-project.org"
         },
         "submods":{
-            "test": {"ear_status": "none"}
+            "test": {"ear_status": "incomplete"}
         },
         "ear_raw_evidence":[
             "application/vnd.evidence",
@@ -433,7 +507,7 @@ pub mod test {
 
     const EAR_WITH_EXTENSIONS_STRING: &str = r#"
     {
-        "eat_profile":"tag:ietf.org,2026:rats/ear#04",
+        "eat_profile":"tag:ietf.org,2026:rats/ear#05",
         "iat":1666529184,
         "ear_verifier_id":{
             "build":"vsts 0.0.1",
@@ -441,7 +515,7 @@ pub mod test {
         },
         "submods":{
             "test": {
-                "ear_status": "none",
+                "ear_status": "incomplete",
                 "ext3": "3q2-7w"
             }
         },
@@ -474,7 +548,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     #[test]
     fn deserialize_draft_figure3_json() {
         const DRAFT_EXAMPLE: &str = r#"{
-            "eat_profile": "tag:ietf.org,2026:rats/ear#04",
+            "eat_profile": "tag:ietf.org,2026:rats/ear#05",
             "iat": 1666529184,
             "ear_verifier_id": {
                 "developer": "https://veraison-project.org",
@@ -516,7 +590,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     #[test]
     fn deserialize_draft_figure4_composite_json() {
         const DRAFT_EXAMPLE: &str = r#"{
-            "eat_profile": "tag:ietf.org,2026:rats/ear#04",
+            "eat_profile": "tag:ietf.org,2026:rats/ear#05",
             "iat": 1666529300,
             "ear_verifier_id": {
                 "developer": "https://veraison-project.org",
@@ -571,7 +645,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     fn status_and_topology_serde() {
         const EAR_WITH_STATUS_AND_TOPOLOGY: &str = r#"
         {
-            "eat_profile":"tag:ietf.org,2026:rats/ear#04",
+            "eat_profile":"tag:ietf.org,2026:rats/ear#05",
             "iat":1666529184,
             "ear_verifier_id":{
                 "build":"vsts 0.0.1",
@@ -684,9 +758,52 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
         );
         assert!(serde_json::to_string(&ear).is_err());
 
-        // no overall claim is being made, so there is nothing to contradict
+        // with an older profile, a received none status makes no overall claim, so there is
+        // nothing to contradict, but it must not be produced
+        ear.profile = "tag:ietf.org,2026:rats/ear#04".to_string();
         ear.status = Some(TrustTier::None);
-        ear.validate().unwrap();
+        ear.validate_received().unwrap();
+        assert_eq!(
+            ear.validate().unwrap_err().to_string(),
+            "validation error: ear_status must not be none"
+        );
+    }
+
+    #[test]
+    fn none_status_is_rejected_when_parsing_only_for_ear05() {
+        const OLD_PROFILE: &str = "tag:ietf.org,2026:rats/ear#04";
+        let ear_text = |profile: &str, status: &str, submod_status: &str| {
+            format!(
+                r#"{{
+                    "eat_profile": "{profile}",
+                    "iat": 1666529184,
+                    "ear_verifier_id": {{"build": "vsts 0.0.1", "developer": "https://veraison-project.org"}},
+                    "ear_status": "{status}",
+                    "submods": {{"test": {{"ear_status": "{submod_status}"}}}}
+                }}"#
+            )
+        };
+
+        for (status, submod_status, error) in [
+            ("none", "affirming", "ear_status must not be none"),
+            (
+                "affirming",
+                "none",
+                "submod test: ear_status must not be none",
+            ),
+        ] {
+            let err = serde_json::from_str::<Ear>(&ear_text(EAR_PROFILE, status, submod_status))
+                .unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with(&format!("validation error: {error} at line")),
+                "{err}"
+            );
+
+            let ear =
+                serde_json::from_str::<Ear>(&ear_text(OLD_PROFILE, status, submod_status)).unwrap();
+            assert!(serde_json::to_string(&ear).is_err());
+        }
     }
 
     #[test]
@@ -868,6 +985,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
             ),
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             topology: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),

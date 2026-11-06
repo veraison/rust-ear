@@ -268,6 +268,7 @@ mod test {
             raw_evidence: None,
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             topology: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),
