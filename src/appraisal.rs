@@ -24,6 +24,14 @@ pub struct Appraisal {
     /// This is typically the lowest tier of all the claims that have been made (whose values have
     /// been set), though a verifier may choose to set it to a lower value.
     pub status: TrustTier,
+    /// Reasons for the value of `status`, for people rather than for automated decisions
+    /// (`ear_status_details` / 1010)
+    ///
+    /// A present list must be non-empty. Per [draft-ietf-rats-ear-05, Section 3.3], Relying Parties
+    /// must treat its contents as untrusted input.
+    ///
+    /// [draft-ietf-rats-ear-05, Section 3.3]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-05.html#section-3.3
+    pub status_details: Vec<String>,
     /// Contains the trustworthiness claims made in the appraisal
     ///
     /// When present on the wire, [draft-ietf-rats-ear-04 Appendix A] requires this map to be
@@ -31,6 +39,15 @@ pub struct Appraisal {
     ///
     /// [draft-ietf-rats-ear-04 Appendix A]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#appendix-A
     pub trust_vector: TrustVector,
+    /// Reasons for the values of trustworthiness vector categories, keyed by category name, e.g.
+    /// `"executables"` (`ear_trustworthiness_vector_details` / 1011)
+    ///
+    /// Per [draft-ietf-rats-ear-05, Section 3.2], each key must be a category present in
+    /// `trust_vector`, and each list of reasons must be non-empty. In CBOR the keys are the
+    /// categories' integer labels.
+    ///
+    /// [draft-ietf-rats-ear-05, Section 3.2]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-05.html#section-3.2
+    pub trust_vector_details: BTreeMap<String, Vec<String>>,
     /// Identifiers of the policies applied by the verifier (`ear_appraisal_policy_ids` / 1003)
     ///
     /// [draft-ietf-rats-ear-04, Section 3.1] requires a present list to be non-empty.
@@ -60,6 +77,12 @@ pub struct Appraisal {
     ///
     /// [Appendix A]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#appendix-A
     pub verifier_claims: BTreeMap<String, RawValue>,
+    /// Claims with Endorser authority added during appraisal using Endorsements, keyed by the
+    /// supply chain entity that asserted them (`ear_endorser_claims` / 1014)
+    pub endorser_claims: BTreeMap<String, BTreeMap<String, RawValue>>,
+    /// Claims present in the evidence that the verifier corroborated using Reference Values, keyed
+    /// by the supply chain entity that provided them (`ear_reference_value_provider_claims` / 1015)
+    pub reference_value_provider_claims: BTreeMap<String, BTreeMap<String, RawValue>>,
     /// Public key attestation (Veraison extension: `ear_veraison_key_attestation` / -70002)
     pub key_attestation: Option<KeyAttestation>,
     /// extension claims
@@ -72,11 +95,15 @@ impl Appraisal {
         Appraisal {
             profile: None,
             status: TrustTier::None,
+            status_details: Vec::new(),
             trust_vector: TrustVector::new(),
+            trust_vector_details: BTreeMap::new(),
             policy_ids: Vec::new(),
             nonce: None,
             attester_claims: BTreeMap::new(),
             verifier_claims: BTreeMap::new(),
+            endorser_claims: BTreeMap::new(),
+            reference_value_provider_claims: BTreeMap::new(),
             key_attestation: None,
             extensions: Extensions::new(),
         }
@@ -138,8 +165,19 @@ impl Serialize for Appraisal {
 
             map.serialize_entry("ear_status", &self.status)?;
 
+            if !self.status_details.is_empty() {
+                map.serialize_entry("ear_status_details", &self.status_details)?;
+            }
+
             if self.trust_vector.any_set() {
                 map.serialize_entry("ear_trustworthiness_vector", &self.trust_vector)?;
+            }
+
+            if !self.trust_vector_details.is_empty() {
+                map.serialize_entry(
+                    "ear_trustworthiness_vector_details",
+                    &self.trust_vector_details,
+                )?;
             }
 
             if !self.policy_ids.is_empty() {
@@ -158,6 +196,17 @@ impl Serialize for Appraisal {
                 map.serialize_entry("ear_verifier_claims", &self.verifier_claims)?;
             }
 
+            if !self.endorser_claims.is_empty() {
+                map.serialize_entry("ear_endorser_claims", &self.endorser_claims)?;
+            }
+
+            if !self.reference_value_provider_claims.is_empty() {
+                map.serialize_entry(
+                    "ear_reference_value_provider_claims",
+                    &self.reference_value_provider_claims,
+                )?;
+            }
+
             if let Some(ka) = &self.key_attestation {
                 map.serialize_entry("ear_veraison_key_attestation", ka)?;
             }
@@ -170,8 +219,18 @@ impl Serialize for Appraisal {
 
             map.serialize_entry(&1000, &self.status)?;
 
+            if !self.status_details.is_empty() {
+                map.serialize_entry(&1010, &self.status_details)?;
+            }
+
             if self.trust_vector.any_set() {
                 map.serialize_entry(&1001, &self.trust_vector)?;
+            }
+
+            if !self.trust_vector_details.is_empty() {
+                let details = details_by_key(&self.trust_vector_details)
+                    .map_err(serde::ser::Error::custom)?;
+                map.serialize_entry(&1011, &details)?;
             }
 
             if !self.policy_ids.is_empty() {
@@ -188,6 +247,14 @@ impl Serialize for Appraisal {
 
             if !self.verifier_claims.is_empty() {
                 map.serialize_entry(&1006, &self.verifier_claims)?;
+            }
+
+            if !self.endorser_claims.is_empty() {
+                map.serialize_entry(&1014, &self.endorser_claims)?;
+            }
+
+            if !self.reference_value_provider_claims.is_empty() {
+                map.serialize_entry(&1015, &self.reference_value_provider_claims)?;
             }
 
             if let Some(ka) = &self.key_attestation {
@@ -236,6 +303,17 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                 match map.next_key::<&str>()? {
                     Some("eat_profile") => appraisal.profile = Some(map.next_value::<String>()?),
                     Some("ear_status") => appraisal.status = map.next_value::<TrustTier>()?,
+                    Some("ear_status_details") => {
+                        let reasons = map.next_value::<Vec<String>>()?;
+                        if reasons.is_empty() {
+                            return Err(de::Error::custom("ear_status_details must not be empty"));
+                        }
+                        appraisal.status_details = reasons;
+                    }
+                    Some("ear_trustworthiness_vector_details") => {
+                        let details = map.next_value::<BTreeMap<String, Vec<String>>>()?;
+                        appraisal.trust_vector_details = vector_details(details)?;
+                    }
                     Some("ear_trustworthiness_vector") => {
                         let trust_vector = map.next_value::<TrustVector>()?;
                         if !trust_vector.any_set() {
@@ -269,6 +347,16 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                         }
                         appraisal.verifier_claims = claims;
                     }
+                    Some("ear_endorser_claims") => {
+                        appraisal.endorser_claims =
+                            supply_chain_claims(map.next_value()?, "ear_endorser_claims")?;
+                    }
+                    Some("ear_reference_value_provider_claims") => {
+                        appraisal.reference_value_provider_claims = supply_chain_claims(
+                            map.next_value()?,
+                            "ear_reference_value_provider_claims",
+                        )?;
+                    }
                     Some("ear_veraison_key_attestation") => {
                         appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
@@ -284,6 +372,18 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                     }
                     Some(ClaimKey::Integer(1000)) => {
                         appraisal.status = map.next_value::<TrustTier>()?
+                    }
+                    Some(ClaimKey::Integer(1010)) => {
+                        let reasons = map.next_value::<Vec<String>>()?;
+                        if reasons.is_empty() {
+                            return Err(de::Error::custom("ear_status_details must not be empty"));
+                        }
+                        appraisal.status_details = reasons;
+                    }
+                    Some(ClaimKey::Integer(1011)) => {
+                        let details = map.next_value::<BTreeMap<i64, Vec<String>>>()?;
+                        appraisal.trust_vector_details =
+                            vector_details(details_by_name(details).map_err(de::Error::custom)?)?;
                     }
                     Some(ClaimKey::Integer(1001)) => {
                         let trust_vector = map.next_value::<TrustVector>()?;
@@ -320,6 +420,16 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
                         }
                         appraisal.verifier_claims = claims;
                     }
+                    Some(ClaimKey::Integer(1014)) => {
+                        appraisal.endorser_claims =
+                            supply_chain_claims(map.next_value()?, "ear_endorser_claims")?;
+                    }
+                    Some(ClaimKey::Integer(1015)) => {
+                        appraisal.reference_value_provider_claims = supply_chain_claims(
+                            map.next_value()?,
+                            "ear_reference_value_provider_claims",
+                        )?;
+                    }
                     Some(ClaimKey::Integer(-70002)) => {
                         appraisal.key_attestation = Some(map.next_value::<KeyAttestation>()?)
                     }
@@ -337,8 +447,93 @@ impl<'de> Visitor<'de> for AppraisalVisitor {
             }
         }
 
+        for category in appraisal.trust_vector_details.keys() {
+            // vector_details() has checked that the category name is valid
+            if !appraisal
+                .trust_vector
+                .by_name(category)
+                .is_ok_and(|c| c.is_set())
+            {
+                return Err(de::Error::custom(format!(
+                    "ear_trustworthiness_vector_details: category {category} is not present \
+                     in ear_trustworthiness_vector"
+                )));
+            }
+        }
+
         Ok(appraisal)
     }
+}
+
+/// Checks an `ear_trustworthiness_vector_details` map keyed by category name.
+fn vector_details<E: de::Error>(
+    details: BTreeMap<String, Vec<String>>,
+) -> Result<BTreeMap<String, Vec<String>>, E> {
+    if details.is_empty() {
+        return Err(E::custom(
+            "ear_trustworthiness_vector_details must not be empty",
+        ));
+    }
+    for (category, reasons) in &details {
+        if TrustVector::new().by_name(category).is_err() {
+            return Err(E::custom(format!(
+                "ear_trustworthiness_vector_details: unknown category {category}"
+            )));
+        }
+        if reasons.is_empty() {
+            return Err(E::custom(format!(
+                "ear_trustworthiness_vector_details: {category} must not be empty"
+            )));
+        }
+    }
+    Ok(details)
+}
+
+/// Converts trustworthiness vector details keyed by category name to the CBOR integer labels.
+fn details_by_key(
+    details: &BTreeMap<String, Vec<String>>,
+) -> Result<BTreeMap<i8, &Vec<String>>, Error> {
+    let vector = TrustVector::new();
+    details
+        .iter()
+        .map(|(category, reasons)| Ok((vector.by_name(category)?.key(), reasons)))
+        .collect()
+}
+
+/// Converts trustworthiness vector details keyed by CBOR integer label to category names.
+fn details_by_name(
+    details: BTreeMap<i64, Vec<String>>,
+) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let vector = TrustVector::new();
+    details
+        .into_iter()
+        .map(|(key, reasons)| {
+            let category = i32::try_from(key)
+                .ok()
+                .and_then(|key| vector.by_key(key).ok())
+                .ok_or_else(|| {
+                    format!("ear_trustworthiness_vector_details: unknown category {key}")
+                })?;
+            Ok((category.tag().to_string(), reasons))
+        })
+        .collect()
+}
+
+/// Checks an endorser or reference value provider claims map: a non-empty map from supply chain
+/// entity to a non-empty claims map.
+fn supply_chain_claims<E: de::Error>(
+    claims: BTreeMap<String, BTreeMap<String, RawValue>>,
+    claim: &str,
+) -> Result<BTreeMap<String, BTreeMap<String, RawValue>>, E> {
+    if claims.is_empty() {
+        return Err(E::custom(format!("{claim} must not be empty")));
+    }
+    if let Some((entity, _)) = claims.iter().find(|(_, claims)| claims.is_empty()) {
+        return Err(E::custom(format!(
+            "{claim}: claims of {entity} must not be empty"
+        )));
+    }
+    Ok(claims)
 }
 
 #[cfg(test)]
@@ -414,8 +609,9 @@ mod test {
     }
 
     #[test]
-    fn attester_and_verifier_claims_serde() {
-        // from the Project Veraison extension example in draft-ietf-rats-ear-04 4.5.1
+    fn claims_serde() {
+        // from the Project Veraison extension example in draft-ietf-rats-ear-05 4.6.1,
+        // abridged, plus ear_verifier_claims, which the example doesn't have
         const DRAFT_EXAMPLE: &str = r#"{
             "ear_status": "contraindicated",
             "ear_trustworthiness_vector": {
@@ -432,9 +628,19 @@ mod test {
                 "psa-security-lifecycle": 12288
             },
             "ear_verifier_claims": {
-                "psa-certified": {
-                    "certificate-number": "1234567890123-12345",
-                    "test-lab": "Riscure"
+                "psa-certification-checked": true
+            },
+            "ear_endorser_claims": {
+                "ACME Security Lab": {
+                    "psa-certified": {
+                        "certificate-number": "1234567890123-12345",
+                        "test-lab": "Riscure"
+                    }
+                }
+            },
+            "ear_reference_value_provider_claims": {
+                "Arm": {
+                    "psa-implementation-id": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
                 }
             }
         }"#;
@@ -450,7 +656,11 @@ mod test {
             Some(&RawValue::Integer(12288)),
         );
         assert_eq!(
-            a.verifier_claims.get("psa-certified"),
+            a.verifier_claims.get("psa-certification-checked"),
+            Some(&RawValue::Bool(true)),
+        );
+        assert_eq!(
+            a.endorser_claims["ACME Security Lab"].get("psa-certified"),
             Some(&RawValue::Map(vec![
                 (
                     RawValue::String("certificate-number".to_string()),
@@ -462,6 +672,12 @@ mod test {
                 ),
             ])),
         );
+        assert_eq!(
+            a.reference_value_provider_claims["Arm"].get("psa-implementation-id"),
+            Some(&RawValue::String(
+                "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=".to_string()
+            )),
+        );
 
         let text = serde_json::to_string(&a).unwrap();
         assert_eq!(
@@ -471,8 +687,9 @@ mod test {
 
         let mut buf = Vec::new();
         into_writer(&a, &mut buf).unwrap();
-        assert!(matches!(claim_value(&buf, 1005), Value::Map(_)));
-        assert!(matches!(claim_value(&buf, 1006), Value::Map(_)));
+        for key in [1005, 1006, 1014, 1015] {
+            assert!(matches!(claim_value(&buf, key), Value::Map(_)), "{key}");
+        }
 
         let b: Appraisal = from_reader(buf.as_slice()).unwrap();
         assert_eq!(a, b);
@@ -573,7 +790,7 @@ mod test {
     }
 
     #[test]
-    fn rejects_present_empty_claims() {
+    fn rejects_invalid_claims() {
         for (document, expected) in [
             (
                 r#"{"ear_status":"none","ear_trustworthiness_vector":{}}"#,
@@ -590,6 +807,43 @@ mod test {
             (
                 r#"{"ear_status":"none","ear_verifier_claims":{}}"#,
                 "ear_verifier_claims must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_status_details":[]}"#,
+                "ear_status_details must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_trustworthiness_vector":{"executables":2},
+                    "ear_trustworthiness_vector_details":{}}"#,
+                "ear_trustworthiness_vector_details must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_trustworthiness_vector":{"executables":2},
+                    "ear_trustworthiness_vector_details":{"executables":[]}}"#,
+                "ear_trustworthiness_vector_details: executables must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_trustworthiness_vector":{"executables":2},
+                    "ear_trustworthiness_vector_details":{"firmware":["x"]}}"#,
+                "ear_trustworthiness_vector_details: unknown category firmware",
+            ),
+            (
+                // the category must be present in the trust vector, in either order
+                r#"{"ear_status":"none","ear_trustworthiness_vector_details":{"hardware":["x"]},
+                    "ear_trustworthiness_vector":{"executables":2}}"#,
+                "category hardware is not present in ear_trustworthiness_vector",
+            ),
+            (
+                r#"{"ear_status":"none","ear_endorser_claims":{}}"#,
+                "ear_endorser_claims must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_endorser_claims":{"ACME":{}}}"#,
+                "ear_endorser_claims: claims of ACME must not be empty",
+            ),
+            (
+                r#"{"ear_status":"none","ear_reference_value_provider_claims":{}}"#,
+                "ear_reference_value_provider_claims must not be empty",
             ),
         ] {
             let error = serde_json::from_str::<Appraisal>(document).unwrap_err();
@@ -615,6 +869,90 @@ mod test {
                 .contains("ear_appraisal_policy_ids must not be empty"),
             "{error}"
         );
+
+        // an unknown CBOR category label
+        let value = Value::Map(vec![
+            (
+                Value::Integer(Integer::from(1000)),
+                Value::Integer(Integer::from(0)),
+            ),
+            (
+                Value::Integer(Integer::from(1011)),
+                Value::Map(vec![(
+                    Value::Integer(Integer::from(9)),
+                    Value::Array(vec![Value::Text("x".to_string())]),
+                )]),
+            ),
+        ]);
+        let mut buf = Vec::new();
+        into_writer(&value, &mut buf).unwrap();
+        let error = from_reader::<Appraisal, _>(buf.as_slice()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("ear_trustworthiness_vector_details: unknown category 9"),
+            "{error}"
+        );
+    }
+
+    /// The "PSA" submod of the draft-ietf-rats-ear-05 Figure 4 example
+    const DETAILS_EXAMPLE: &str = r#"{
+        "ear_status": "contraindicated",
+        "ear_status_details": [
+            "The 'executables' category is contraindicated."
+        ],
+        "ear_trustworthiness_vector": {
+            "instance-identity": 2,
+            "executables": 96,
+            "hardware": 2
+        },
+        "ear_trustworthiness_vector_details": {
+            "executables": [ "unauthorized code found in runtime memory" ]
+        },
+        "ear_appraisal_policy_ids": [ "https://veraison.example/policy/1/60a0068d" ]
+    }"#;
+
+    #[test]
+    fn details_serde() {
+        let a: Appraisal = serde_json::from_str(DETAILS_EXAMPLE).unwrap();
+        assert_eq!(
+            a.status_details,
+            vec!["The 'executables' category is contraindicated.".to_string()],
+        );
+        assert_eq!(
+            a.trust_vector_details.get("executables"),
+            Some(&vec![
+                "unauthorized code found in runtime memory".to_string()
+            ]),
+        );
+
+        let text = serde_json::to_string(&a).unwrap();
+        assert_eq!(
+            text.parse::<serde_json::Value>().unwrap(),
+            DETAILS_EXAMPLE.parse::<serde_json::Value>().unwrap(),
+        );
+
+        // the same appraisal as in the draft-ietf-rats-ear-05 Figure 6 CBOR example
+        let mut buf = Vec::new();
+        into_writer(&a, &mut buf).unwrap();
+        assert_eq!(
+            claim_value(&buf, 1010),
+            Value::Array(vec![Value::Text(
+                "The 'executables' category is contraindicated.".to_string()
+            )]),
+        );
+        assert_eq!(
+            claim_value(&buf, 1011),
+            Value::Map(vec![(
+                Value::Integer(Integer::from(2)),
+                Value::Array(vec![Value::Text(
+                    "unauthorized code found in runtime memory".to_string()
+                )]),
+            )]),
+        );
+
+        let b: Appraisal = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]
