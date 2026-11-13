@@ -443,11 +443,17 @@ impl TrustClaim {
 
     /// Return the trust tier of the claim's value
     ///
-    /// If the value is unset, `TrustTier::None` is returned.
+    /// If the value is unset, `TrustTier::None` is returned. Per [draft-ietf-rats-ar4si-11,
+    /// Section 2.3.2], `0` is in the none tier, while `1` (unexpected evidence) and `-1` (verifier
+    /// malfunction) are in the incomplete tier.
+    ///
+    /// [draft-ietf-rats-ar4si-11, Section 2.3.2]: https://www.ietf.org/archive/id/draft-ietf-rats-ar4si-11.html#section-2.3.2
     pub fn tier(&self) -> TrustTier {
         let val = self.value();
-        if (-1..=1).contains(&val) {
+        if val == 0 {
             TrustTier::None
+        } else if (-1..=1).contains(&val) {
+            TrustTier::Incomplete
         } else if (-32..32).contains(&val) {
             TrustTier::Affirming
         } else if (-96..96).contains(&val) {
@@ -602,8 +608,11 @@ mod test {
 
         assert_eq!(claim.tier(), TrustTier::None);
 
-        claim.set(1i8);
+        claim.set(0i8);
         assert_eq!(claim.tier(), TrustTier::None);
+
+        claim.set(1i8);
+        assert_eq!(claim.tier(), TrustTier::Incomplete);
 
         claim.set(2i8);
         assert_eq!(claim.tier(), TrustTier::Affirming);
@@ -621,7 +630,7 @@ mod test {
         assert_eq!(claim.tier(), TrustTier::Contraindicated);
 
         claim.set(-1i8);
-        assert_eq!(claim.tier(), TrustTier::None);
+        assert_eq!(claim.tier(), TrustTier::Incomplete);
 
         claim.set(-2i8);
         assert_eq!(claim.tier(), TrustTier::Affirming);

@@ -164,7 +164,9 @@ mod test {
             raw_evidence: None,
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             topology: None,
+            input_digest: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),
         };
@@ -196,7 +198,9 @@ mod test {
             raw_evidence: None,
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             topology: None,
+            input_digest: None,
             submods: BTreeMap::from([("PARSEC_TPM".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),
         };
