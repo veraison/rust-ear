@@ -156,6 +156,19 @@ impl Ear {
             Error::ValidationError(format!("verifier-id: {msg}"))
         })?;
 
+        for (label, appraisal) in &self.submods {
+            let status = appraisal.status;
+            match appraisal.most_severe_claim_tier() {
+                Some(worst) if status != TrustTier::None && status < worst => {
+                    return Err(Error::ValidationError(format!(
+                        "submod {label}: status {status} is more trustworthy than the worst \
+                         trustworthiness claim tier {worst}"
+                    )));
+                }
+                _ => (),
+            }
+        }
+
         if let Some(status) = self.status {
             let worst = self.most_severe_submod_status();
             if status != TrustTier::None && status < worst {
@@ -673,6 +686,49 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
 
         // no overall claim is being made, so there is nothing to contradict
         ear.status = Some(TrustTier::None);
+        ear.validate().unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_overly_trustworthy_submod_status() {
+        let mut appraisal = Appraisal::new();
+        appraisal
+            .trust_vector
+            .executables
+            .set(claim::CONTRAINDICATED_RUNTIME);
+        appraisal.status = TrustTier::Warning;
+
+        let mut ear = Ear::new();
+        ear.profile = EAR_PROFILE.to_string();
+        ear.vid.build = "vsts 0.0.1".to_string();
+        ear.vid.developer = "https://veraison-project.org".to_string();
+        ear.submods.insert("PSA".to_string(), appraisal);
+
+        let err = ear.validate().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "validation error: submod PSA: status warning is more trustworthy than the worst \
+             trustworthiness claim tier contraindicated"
+        );
+        assert!(serde_json::to_string(&ear).is_err());
+
+        // also when parsing
+        let text = format!(
+            r#"{{
+                "eat_profile": "{EAR_PROFILE}",
+                "iat": 1666529184,
+                "ear_verifier_id": {{"build": "vsts 0.0.1", "developer": "https://veraison-project.org"}},
+                "submods": {{
+                    "PSA": {{"ear_status": "affirming", "ear_trustworthiness_vector": {{"executables": 33}}}}
+                }}
+            }}"#
+        );
+        assert!(serde_json::from_str::<Ear>(&text).is_err());
+
+        // a less trustworthy status than the claims support is fine
+        let submod = ear.submods.get_mut("PSA").unwrap();
+        submod.status = TrustTier::Contraindicated;
+        submod.trust_vector.executables.set(claim::UNSAFE_RUNTIME);
         ear.validate().unwrap();
     }
 
