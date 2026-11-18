@@ -35,12 +35,12 @@ pub const EAR_PROFILE: &str = "tag:ietf.org,2026:rats/ear#04";
 pub struct Ear {
     /// The EAT profile of the associated claim-set
     ///
-    /// See <https://datatracker.ietf.org/doc/html/draft-ietf-rats-eat-19#name-eat_profile-eat-profile-cla>
+    /// See <https://www.rfc-editor.org/rfc/rfc9711.html#section-4.3.2>
     pub profile: String,
     /// "Issued At" -- the time at which the EAR is issued
     ///
     /// See:
-    /// - <https://datatracker.ietf.org/doc/html/draft-ietf-rats-eat-19#section-4.3.1>
+    /// - <https://www.rfc-editor.org/rfc/rfc9711.html#section-4.3.1>
     /// - <https://www.rfc-editor.org/rfc/rfc7519#section-4.1.6>
     pub iat: i64,
     /// "Expiration Time" -- the time after which the EAR must not be accepted
