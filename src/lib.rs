@@ -3,7 +3,7 @@
 //! An implementation of EAT Attestation Results token.
 //!
 //! This crate provides an implementation of attestation results tokens that conforms to EAT
-//! Attestation Results [draft-ietf-rats-ear-04] specification. This defines a token intended to
+//! Attestation Results [draft-ietf-rats-ear-05] specification. This defines a token intended to
 //! communicate a set of appraisals of attested evidence produced by a verifier. Each appraisal is
 //! based around a set of trust claims defined by Attestation Results for Secure Interactions
 //! (AR4SI) [draft-ietf-rats-ar4si].
@@ -11,7 +11,7 @@
 //! The attestation result may be serialized as a signed JSON or CBOR token (using JWT and COSE,
 //! respectively).
 //!
-//! [draft-ietf-rats-ear-04]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
+//! [draft-ietf-rats-ear-05]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
 //! [draft-ietf-rats-ar4si]: https://datatracker.ietf.org/doc/draft-ietf-rats-ar4si/
 //!
 //! # Crate features
@@ -63,7 +63,9 @@
 //!         raw_evidence: None,
 //!         nonce: None,
 //!         status: None,
+//!         status_details: Vec::new(),
 //!         topology: None,
+//!         input_digest: None,
 //!         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
 //!         extensions: Extensions::new(),
 //!     };
@@ -157,7 +159,7 @@
 //! use ear::{Ear, Appraisal, RawValueKind, RawValue, Profile, register_profile};
 //!
 //! fn init_profile() {
-//!     let mut profile = Profile::new("tag:ietf.org,2026:rats/ear#04");
+//!     let mut profile = Profile::new("tag:ietf.org,2026:rats/ear#05");
 //!
 //!     profile.register_ear_extension(
 //!         "ext.company-name", -65537, RawValueKind::String).unwrap();
@@ -171,10 +173,10 @@
 //!     init_profile();
 //!
 //!     let mut ear = Ear::new_with_profile(
-//!         "tag:ietf.org,2026:rats/ear#04").unwrap();
+//!         "tag:ietf.org,2026:rats/ear#05").unwrap();
 //!     // these will apply to all submods/appraisals within a profiled EAR
 //!     let mut appraisal = Appraisal::new_with_profile(
-//!         "tag:ietf.org,2026:rats/ear#04").unwrap();
+//!         "tag:ietf.org,2026:rats/ear#05").unwrap();
 //!
 //!     ear.extensions.set_by_name(
 //!         "ext.company-name",
@@ -236,7 +238,7 @@
 //! ";
 //!
 //! let mut ear = Ear::new();
-//! ear.profile = "tag:ietf.org,2026:rats/ear#04".to_string();
+//! ear.profile = "tag:ietf.org,2026:rats/ear#05".to_string();
 //! ear.vid.build = "vsts 0.0.1".to_string();
 //! ear.vid.developer = "https://veraison-project.org".to_string();
 //! ear.submods.insert("road-runner-trap".to_string(), Appraisal::new());
@@ -297,6 +299,7 @@
 //!         nonce: None,
 //!         status: None,
 //!         topology: None,
+//!         input_digest: None,
 //!         submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
 //!         extensions: Extensions::new(),
 //!     };
@@ -330,6 +333,7 @@
 mod algorithm;
 mod appraisal;
 mod base64;
+mod digest;
 mod ear;
 mod error;
 mod extension;
@@ -342,6 +346,8 @@ mod trust;
 pub use self::algorithm::Algorithm;
 pub use self::appraisal::Appraisal;
 pub use self::base64::Bytes;
+pub use self::digest::Digest;
+pub use self::digest::DigestAlgorithm;
 #[cfg(feature = "cose")]
 pub use self::ear::cose::new_cose_header;
 #[cfg(feature = "jwt")]

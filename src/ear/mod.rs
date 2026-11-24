@@ -10,6 +10,7 @@ use serde::{
 };
 
 use crate::appraisal::Appraisal;
+use crate::digest::Digest;
 use crate::error::Error;
 use crate::extension::{get_profile, ClaimKey, Extensions};
 use crate::id::VerifierID;
@@ -22,10 +23,10 @@ pub mod cose;
 #[cfg(feature = "jwt")]
 pub mod jwt;
 
-/// EAT profile URI for [draft-ietf-rats-ear-04].
+/// EAT profile URI for [draft-ietf-rats-ear-05].
 ///
-/// [draft-ietf-rats-ear-04]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
-pub const EAR_PROFILE: &str = "tag:ietf.org,2026:rats/ear#04";
+/// [draft-ietf-rats-ear-05]: https://datatracker.ietf.org/doc/draft-ietf-rats-ear/
+pub const EAR_PROFILE: &str = "tag:ietf.org,2026:rats/ear#05";
 
 /// An EAT Attestation Result
 ///
@@ -55,10 +56,18 @@ pub struct Ear {
     pub nonce: Option<Nonce>,
     /// Overall appraisal status for the composite attester (`ear_status` / 1000)
     ///
-    /// When set to anything other than [`TrustTier::None`], it must not be more trustworthy than
-    /// the worst status across all submod appraisals; [`Ear::validate`] enforces this. An explicit
-    /// [`TrustTier::None`] means the verifier makes no overall claim.
+    /// It must not be [`TrustTier::None`], nor more trustworthy than the worst status across all
+    /// submod appraisals; [`Ear::validate`] enforces both. Leave it unset to make no overall
+    /// claim.
     pub status: Option<TrustTier>,
+    /// Reasons for the value of `status`, for people rather than for automated decisions
+    /// (`ear_status_details` / 1010)
+    ///
+    /// A present list must be non-empty. Per [draft-ietf-rats-ear-05, Section 3.3], Relying Parties
+    /// must treat its contents as untrusted input.
+    ///
+    /// [draft-ietf-rats-ear-05, Section 3.3]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-05.html#section-3.3
+    pub status_details: Vec<String>,
     /// Raw evidence submitted for appraisal, wrapped in a Record CMW (`ear_raw_evidence` / 1002)
     ///
     /// [draft-ietf-rats-ear-04, Section 3] restricts this claim to `cmw-record`; CMW Collections
@@ -74,6 +83,12 @@ pub struct Ear {
     ///
     /// [draft-ietf-rats-ear-04, Section 3]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-04.html#section-3
     pub topology: Option<BTreeMap<String, Vec<String>>>,
+    /// Digest of the appraisal request input that produced this EAR (`ear_input_digest` / 1008)
+    ///
+    /// See [draft-ietf-rats-ear-05, Section 3.1] for how it is computed and when it applies.
+    ///
+    /// [draft-ietf-rats-ear-05, Section 3.1]: https://www.ietf.org/archive/id/draft-ietf-rats-ear-05.html#section-3.1
+    pub input_digest: Option<Digest>,
     /// extension claims
     pub extensions: Extensions,
 }
@@ -92,8 +107,10 @@ impl Ear {
             submods: BTreeMap::new(),
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             raw_evidence: None,
             topology: None,
+            input_digest: None,
             extensions: Extensions::new(),
         }
     }
@@ -108,8 +125,10 @@ impl Ear {
             submods: BTreeMap::new(),
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             raw_evidence: None,
             topology: None,
+            input_digest: None,
             extensions: Extensions::new(),
         };
 
@@ -123,9 +142,47 @@ impl Ear {
     }
 
     /// Ensure that the EAR is valid
+    ///
+    /// Serializing an EAR, and so signing it, runs this check. Besides the checks applied when
+    /// parsing an EAR, it enforces the draft-ietf-rats-ear-05 rule that `ear_status` is never
+    /// [`TrustTier::None`], neither overall nor in any submod, whatever the profile. Parsing
+    /// enforces the rule only for the [`EAR_PROFILE`] profile, so that EARs from producers that
+    /// predate the rule can still be read.
     pub fn validate(&self) -> Result<(), Error> {
+        self.validate_received()?;
+        self.validate_no_none_status()
+    }
+
+    /// Checks that no `ear_status` is [`TrustTier::None`], as draft-ietf-rats-ear-05 requires.
+    fn validate_no_none_status(&self) -> Result<(), Error> {
+        if self.status == Some(TrustTier::None) {
+            return Err(Error::ValidationError(
+                "ear_status must not be none".to_string(),
+            ));
+        }
+
+        if let Some((label, _)) = self
+            .submods
+            .iter()
+            .find(|(_, appraisal)| appraisal.status == TrustTier::None)
+        {
+            return Err(Error::ValidationError(format!(
+                "submod {label}: ear_status must not be none"
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// The checks applied to a parsed EAR: all of [`Ear::validate`], except that a
+    /// [`TrustTier::None`] status is accepted unless the profile is [`EAR_PROFILE`].
+    fn validate_received(&self) -> Result<(), Error> {
         if self.profile.as_str() == "" {
             return Err(Error::ValidationError("empty profile".to_string()));
+        }
+
+        if self.profile == EAR_PROFILE {
+            self.validate_no_none_status()?;
         }
 
         if self.submods.is_empty() {
@@ -156,9 +213,22 @@ impl Ear {
             Error::ValidationError(format!("verifier-id: {msg}"))
         })?;
 
-        if let Some(status) = self.status {
+        for (label, appraisal) in &self.submods {
+            let status = appraisal.status;
+            match appraisal.most_severe_claim_tier() {
+                Some(worst) if status != TrustTier::None && status < worst => {
+                    return Err(Error::ValidationError(format!(
+                        "submod {label}: status {status} is more trustworthy than the worst \
+                         trustworthiness claim tier {worst}"
+                    )));
+                }
+                _ => (),
+            }
+        }
+
+        if let Some(status) = self.status.filter(|status| *status != TrustTier::None) {
             let worst = self.most_severe_submod_status();
-            if status != TrustTier::None && status < worst {
+            if status < worst {
                 return Err(Error::ValidationError(format!(
                     "status {status} is more trustworthy than the worst submod status {worst}"
                 )));
@@ -203,9 +273,13 @@ impl Ear {
 
     /// Set the status of each appraisal from its trustworthiness vector, and the overall `status`
     /// from the resulting submod statuses
+    ///
+    /// Only appraisals whose status is [`TrustTier::None`] or [`TrustTier::Incomplete`] (the
+    /// default for a new appraisal) are updated. An overall status that is already at least as
+    /// severe as the worst submod status is kept.
     pub fn update_status_from_trust_vector(&mut self) {
         for submod in self.submods.values_mut() {
-            if submod.status == TrustTier::None {
+            if matches!(submod.status, TrustTier::None | TrustTier::Incomplete) {
                 submod.update_status_from_trust_vector();
             }
         }
@@ -213,7 +287,7 @@ impl Ear {
         let worst = self.most_severe_submod_status();
         match self.status {
             // a status that is already at least as severe as the worst submod is left alone, as
-            // the verifier may have deliberately set it to a lower tier.
+            // the verifier may have deliberately set it to a less trustworthy tier.
             Some(status) if status >= worst => (),
             _ => self.status = Some(worst),
         }
@@ -249,6 +323,10 @@ impl Serialize for Ear {
                 map.serialize_entry("ear_status", s)?;
             }
 
+            if !self.status_details.is_empty() {
+                map.serialize_entry("ear_status_details", &self.status_details)?;
+            }
+
             if let Some(n) = &self.nonce {
                 map.serialize_entry("eat_nonce", n)?
             }
@@ -259,6 +337,10 @@ impl Serialize for Ear {
 
             if let Some(t) = &self.topology {
                 map.serialize_entry("ear_device_topology", t)?
+            }
+
+            if let Some(d) = &self.input_digest {
+                map.serialize_entry("ear_input_digest", d)?
             }
 
             self.extensions.serialize_to_map_by_name(&mut map)?;
@@ -276,6 +358,10 @@ impl Serialize for Ear {
                 map.serialize_entry(&1000, s)?;
             }
 
+            if !self.status_details.is_empty() {
+                map.serialize_entry(&1010, &self.status_details)?;
+            }
+
             if let Some(n) = &self.nonce {
                 map.serialize_entry(&10, &n)?
             }
@@ -286,6 +372,10 @@ impl Serialize for Ear {
 
             if let Some(t) = &self.topology {
                 map.serialize_entry(&1007, &t)?
+            }
+
+            if let Some(d) = &self.input_digest {
+                map.serialize_entry(&1008, &d)?
             }
 
             self.extensions.serialize_to_map_by_key(&mut map)?;
@@ -333,6 +423,13 @@ impl<'de> Visitor<'de> for EarVisitor {
                     Some("exp") => ear.exp = Some(map.next_value::<i64>()?),
                     Some("ear_verifier_id") => ear.vid = map.next_value::<VerifierID>()?,
                     Some("ear_status") => ear.status = Some(map.next_value::<TrustTier>()?),
+                    Some("ear_status_details") => {
+                        let reasons = map.next_value::<Vec<String>>()?;
+                        if reasons.is_empty() {
+                            return Err(de::Error::custom("ear_status_details must not be empty"));
+                        }
+                        ear.status_details = reasons;
+                    }
                     Some("submods") => {
                         ear.submods = map.next_value::<BTreeMap<String, Appraisal>>()?
                     }
@@ -340,6 +437,9 @@ impl<'de> Visitor<'de> for EarVisitor {
                     Some("ear_raw_evidence") => ear.raw_evidence = Some(map.next_value::<CMW>()?),
                     Some("ear_device_topology") => {
                         ear.topology = Some(map.next_value::<BTreeMap<String, Vec<String>>>()?)
+                    }
+                    Some("ear_input_digest") => {
+                        ear.input_digest = Some(map.next_value::<Digest>()?)
                     }
                     Some(name) => ear.extensions.visit_map_entry_by_name(name, &mut map)?,
                     None => break,
@@ -354,6 +454,13 @@ impl<'de> Visitor<'de> for EarVisitor {
                     Some(ClaimKey::Integer(1000)) => {
                         ear.status = Some(map.next_value::<TrustTier>()?)
                     }
+                    Some(ClaimKey::Integer(1010)) => {
+                        let reasons = map.next_value::<Vec<String>>()?;
+                        if reasons.is_empty() {
+                            return Err(de::Error::custom("ear_status_details must not be empty"));
+                        }
+                        ear.status_details = reasons;
+                    }
                     Some(ClaimKey::Integer(266)) => {
                         ear.submods = map.next_value::<BTreeMap<String, Appraisal>>()?
                     }
@@ -363,6 +470,9 @@ impl<'de> Visitor<'de> for EarVisitor {
                     }
                     Some(ClaimKey::Integer(1007)) => {
                         ear.topology = Some(map.next_value::<BTreeMap<String, Vec<String>>>()?)
+                    }
+                    Some(ClaimKey::Integer(1008)) => {
+                        ear.input_digest = Some(map.next_value::<Digest>()?)
                     }
                     Some(ClaimKey::Integer(key)) => {
                         ear.extensions.visit_map_entry_by_cbor_key(key, &mut map)?
@@ -384,7 +494,7 @@ impl<'de> Visitor<'de> for EarVisitor {
                 .map_err(de::Error::custom)?
         }
 
-        ear.validate().map_err(de::Error::custom)?;
+        ear.validate_received().map_err(de::Error::custom)?;
 
         Ok(ear)
     }
@@ -395,6 +505,7 @@ impl<'de> Visitor<'de> for EarVisitor {
 pub mod test {
     use super::*;
     use crate::claim;
+    use crate::digest::DigestAlgorithm;
     use crate::extension::*;
     use crate::raw::{RawValue, RawValueKind};
     use ciborium::value::{Integer, Value};
@@ -402,14 +513,14 @@ pub mod test {
 
     const EAR_STRING: &str = r#"
     {
-        "eat_profile":"tag:ietf.org,2026:rats/ear#04",
+        "eat_profile":"tag:ietf.org,2026:rats/ear#05",
         "iat":1666529184,
         "ear_verifier_id":{
             "build":"vsts 0.0.1",
             "developer":"https://veraison-project.org"
         },
         "submods":{
-            "test": {"ear_status": "none"}
+            "test": {"ear_status": "incomplete"}
         },
         "ear_raw_evidence":[
             "application/vnd.evidence",
@@ -420,7 +531,7 @@ pub mod test {
 
     const EAR_WITH_EXTENSIONS_STRING: &str = r#"
     {
-        "eat_profile":"tag:ietf.org,2026:rats/ear#04",
+        "eat_profile":"tag:ietf.org,2026:rats/ear#05",
         "iat":1666529184,
         "ear_verifier_id":{
             "build":"vsts 0.0.1",
@@ -428,7 +539,7 @@ pub mod test {
         },
         "submods":{
             "test": {
-                "ear_status": "none",
+                "ear_status": "incomplete",
                 "ext3": "3q2-7w"
             }
         },
@@ -461,7 +572,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     #[test]
     fn deserialize_draft_figure3_json() {
         const DRAFT_EXAMPLE: &str = r#"{
-            "eat_profile": "tag:ietf.org,2026:rats/ear#04",
+            "eat_profile": "tag:ietf.org,2026:rats/ear#05",
             "iat": 1666529184,
             "ear_verifier_id": {
                 "developer": "https://veraison-project.org",
@@ -503,7 +614,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     #[test]
     fn deserialize_draft_figure4_composite_json() {
         const DRAFT_EXAMPLE: &str = r#"{
-            "eat_profile": "tag:ietf.org,2026:rats/ear#04",
+            "eat_profile": "tag:ietf.org,2026:rats/ear#05",
             "iat": 1666529300,
             "ear_verifier_id": {
                 "developer": "https://veraison-project.org",
@@ -558,7 +669,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     fn status_and_topology_serde() {
         const EAR_WITH_STATUS_AND_TOPOLOGY: &str = r#"
         {
-            "eat_profile":"tag:ietf.org,2026:rats/ear#04",
+            "eat_profile":"tag:ietf.org,2026:rats/ear#05",
             "iat":1666529184,
             "ear_verifier_id":{
                 "build":"vsts 0.0.1",
@@ -671,8 +782,94 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
         );
         assert!(serde_json::to_string(&ear).is_err());
 
-        // no overall claim is being made, so there is nothing to contradict
+        // with an older profile, a received none status makes no overall claim, so there is
+        // nothing to contradict, but it must not be produced
+        ear.profile = "tag:ietf.org,2026:rats/ear#04".to_string();
         ear.status = Some(TrustTier::None);
+        ear.validate_received().unwrap();
+        assert_eq!(
+            ear.validate().unwrap_err().to_string(),
+            "validation error: ear_status must not be none"
+        );
+    }
+
+    #[test]
+    fn none_status_is_rejected_when_parsing_only_for_ear05() {
+        const OLD_PROFILE: &str = "tag:ietf.org,2026:rats/ear#04";
+        let ear_text = |profile: &str, status: &str, submod_status: &str| {
+            format!(
+                r#"{{
+                    "eat_profile": "{profile}",
+                    "iat": 1666529184,
+                    "ear_verifier_id": {{"build": "vsts 0.0.1", "developer": "https://veraison-project.org"}},
+                    "ear_status": "{status}",
+                    "submods": {{"test": {{"ear_status": "{submod_status}"}}}}
+                }}"#
+            )
+        };
+
+        for (status, submod_status, error) in [
+            ("none", "affirming", "ear_status must not be none"),
+            (
+                "affirming",
+                "none",
+                "submod test: ear_status must not be none",
+            ),
+        ] {
+            let err = serde_json::from_str::<Ear>(&ear_text(EAR_PROFILE, status, submod_status))
+                .unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with(&format!("validation error: {error} at line")),
+                "{err}"
+            );
+
+            let ear =
+                serde_json::from_str::<Ear>(&ear_text(OLD_PROFILE, status, submod_status)).unwrap();
+            assert!(serde_json::to_string(&ear).is_err());
+        }
+    }
+
+    #[test]
+    fn validate_rejects_overly_trustworthy_submod_status() {
+        let mut appraisal = Appraisal::new();
+        appraisal
+            .trust_vector
+            .executables
+            .set(claim::CONTRAINDICATED_RUNTIME);
+        appraisal.status = TrustTier::Warning;
+
+        let mut ear = Ear::new();
+        ear.profile = EAR_PROFILE.to_string();
+        ear.vid.build = "vsts 0.0.1".to_string();
+        ear.vid.developer = "https://veraison-project.org".to_string();
+        ear.submods.insert("PSA".to_string(), appraisal);
+
+        let err = ear.validate().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "validation error: submod PSA: status warning is more trustworthy than the worst \
+             trustworthiness claim tier contraindicated"
+        );
+        assert!(serde_json::to_string(&ear).is_err());
+
+        // also when parsing
+        let text = format!(
+            r#"{{
+                "eat_profile": "{EAR_PROFILE}",
+                "iat": 1666529184,
+                "ear_verifier_id": {{"build": "vsts 0.0.1", "developer": "https://veraison-project.org"}},
+                "submods": {{
+                    "PSA": {{"ear_status": "affirming", "ear_trustworthiness_vector": {{"executables": 33}}}}
+                }}
+            }}"#
+        );
+        assert!(serde_json::from_str::<Ear>(&text).is_err());
+
+        // a less trustworthy status than the claims support is fine
+        let submod = ear.submods.get_mut("PSA").unwrap();
+        submod.status = TrustTier::Contraindicated;
+        submod.trust_vector.executables.set(claim::UNSAFE_RUNTIME);
         ear.validate().unwrap();
     }
 
@@ -758,6 +955,128 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
     }
 
     #[test]
+    fn input_digest_serde() {
+        const EAR_WITH_INPUT_DIGEST: &str = r#"
+        {
+            "eat_profile":"tag:ietf.org,2026:rats/ear#05",
+            "iat":1666529184,
+            "ear_verifier_id":{
+                "build":"vsts 0.0.1",
+                "developer":"https://veraison-project.org"
+            },
+            "ear_input_digest":[
+                "sha-256",
+                "TInrSlzsaz9jfL7abgvJ2roo2P93Jozst3x3OU_afNg"
+            ],
+            "submods":{
+                "test": {"ear_status": "affirming"}
+            }
+        }
+        "#;
+
+        let ear = serde_json::from_str::<Ear>(EAR_WITH_INPUT_DIGEST).unwrap();
+        let digest = ear.input_digest.as_ref().unwrap();
+        assert_eq!(digest.alg, DigestAlgorithm::Text("sha-256".to_string()));
+        assert_eq!(
+            digest.val.to_string(),
+            "4c89eb4a5cec6b3f637cbeda6e0bc9daba28d8ff77268cecb77c77394fda7cd8"
+        );
+
+        let text = serde_json::to_string(&ear).unwrap();
+        assert_eq!(
+            text.parse::<serde_json::Value>().unwrap(),
+            EAR_WITH_INPUT_DIGEST.parse::<serde_json::Value>().unwrap(),
+        );
+
+        let mut buf: Vec<u8> = Vec::new();
+        into_writer(&ear, &mut buf).unwrap();
+
+        let Value::Map(entries) = from_reader::<Value, _>(buf.as_slice()).unwrap() else {
+            panic!("expected a CBOR map");
+        };
+        let (_, value) = entries
+            .iter()
+            .find(|(k, _)| *k == Value::Integer(Integer::from(1008)))
+            .expect("map must contain claim key 1008");
+        assert_eq!(
+            *value,
+            Value::Array(vec![
+                Value::Text("sha-256".to_string()),
+                Value::Bytes(digest.val.0.clone()),
+            ]),
+        );
+
+        let ear2: Ear = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(ear, ear2);
+
+        let res = serde_json::from_str::<Ear>(&EAR_WITH_INPUT_DIGEST.replace(r#""sha-256","#, ""));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn unknown_claims_are_ignored() {
+        const EAR_WITH_UNKNOWN_CLAIMS: &str = r#"
+        {
+            "eat_profile":"tag:ietf.org,2026:rats/ear#05",
+            "iat":1666529184,
+            "ear_verifier_id":{
+                "build":"vsts 0.0.1",
+                "developer":"https://veraison-project.org"
+            },
+            "future_ear_claim":{"a": [1, 2]},
+            "submods":{
+                "test": {
+                    "ear_status": "affirming",
+                    "future_appraisal_claim": "x"
+                }
+            }
+        }
+        "#;
+
+        let ear = serde_json::from_str::<Ear>(EAR_WITH_UNKNOWN_CLAIMS).unwrap();
+        assert_eq!(ear.submods["test"].status, TrustTier::Affirming);
+
+        // unknown claims are not serialized back
+        let text = serde_json::to_string(&ear).unwrap();
+        let mut expected = EAR_WITH_UNKNOWN_CLAIMS
+            .parse::<serde_json::Value>()
+            .unwrap();
+        expected.as_object_mut().unwrap().remove("future_ear_claim");
+        expected["submods"]["test"]
+            .as_object_mut()
+            .unwrap()
+            .remove("future_appraisal_claim");
+        assert_eq!(text.parse::<serde_json::Value>().unwrap(), expected);
+
+        // integer keys, including ones that don't fit an extension key, in a CBOR appraisal
+        let mut buf = Vec::new();
+        into_writer(&ear, &mut buf).unwrap();
+        let Value::Map(mut entries) = from_reader::<Value, _>(buf.as_slice()).unwrap() else {
+            panic!("expected a CBOR map");
+        };
+        let (_, Value::Map(submods)) = entries
+            .iter_mut()
+            .find(|(k, _)| *k == Value::Integer(Integer::from(266)))
+            .unwrap()
+        else {
+            panic!("expected a submods map");
+        };
+        let Value::Map(appraisal) = &mut submods[0].1 else {
+            panic!("expected an appraisal map");
+        };
+        appraisal.push((Value::Integer(Integer::from(9999)), Value::Bool(true)));
+        appraisal.push((
+            Value::Integer(Integer::from(i64::MIN)),
+            Value::Text("ignored".to_string()),
+        ));
+
+        buf.clear();
+        into_writer(&Value::Map(entries), &mut buf).unwrap();
+        let ear2: Ear = from_reader(buf.as_slice()).unwrap();
+        assert_eq!(ear, ear2);
+    }
+
+    #[test]
     fn expiration_serde_and_validation() {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -812,7 +1131,9 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPp4XZRnRHSMhGg0t
             ),
             nonce: None,
             status: None,
+            status_details: Vec::new(),
             topology: None,
+            input_digest: None,
             submods: BTreeMap::from([("test".to_string(), Appraisal::new())]),
             extensions: Extensions::new(),
         };

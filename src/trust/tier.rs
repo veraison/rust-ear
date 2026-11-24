@@ -13,12 +13,17 @@ use std::fmt::{self, Display};
 ///
 /// This is a categorisation of the levels of trustworthiness based on the values assigned to
 /// trustworthiness claims.
+///
+/// Tiers order from the most to the least trustworthy, except for [`TrustTier::None`], which
+/// makes no claim but orders first. A check like `status <= TrustTier::Affirming` should rule it
+/// out explicitly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TrustTier {
     None,
     Affirming,
     Warning,
     Contraindicated,
+    Incomplete,
 }
 
 impl TrustTier {
@@ -132,6 +137,7 @@ impl TryFrom<&str> for TrustTier {
             "affirming" => Ok(TrustTier::Affirming),
             "warning" => Ok(TrustTier::Warning),
             "contraindicated" => Ok(TrustTier::Contraindicated),
+            "incomplete" => Ok(TrustTier::Incomplete),
             _ => Err(Error::InvalidName(value.to_string())),
         }
     }
@@ -146,6 +152,7 @@ impl TryFrom<i8> for TrustTier {
             2i8 => Ok(TrustTier::Affirming),
             32i8 => Ok(TrustTier::Warning),
             96i8 => Ok(TrustTier::Contraindicated),
+            127i8 => Ok(TrustTier::Incomplete),
             _ => Err(Error::InvalidValue(value)),
         }
     }
@@ -158,6 +165,7 @@ impl From<TrustTier> for String {
             TrustTier::Affirming => "affirming".to_string(),
             TrustTier::Warning => "warning".to_string(),
             TrustTier::Contraindicated => "contraindicated".to_string(),
+            TrustTier::Incomplete => "incomplete".to_string(),
         }
     }
 }
@@ -169,6 +177,7 @@ impl From<&TrustTier> for String {
             TrustTier::Affirming => "affirming".to_string(),
             TrustTier::Warning => "warning".to_string(),
             TrustTier::Contraindicated => "contraindicated".to_string(),
+            TrustTier::Incomplete => "incomplete".to_string(),
         }
     }
 }
@@ -180,6 +189,7 @@ impl<'a, 'b> From<&'a TrustTier> for &'b str {
             TrustTier::Affirming => "affirming",
             TrustTier::Warning => "warning",
             TrustTier::Contraindicated => "contraindicated",
+            TrustTier::Incomplete => "incomplete",
         }
     }
 }
@@ -191,6 +201,7 @@ impl From<TrustTier> for i8 {
             TrustTier::Affirming => 2i8,
             TrustTier::Warning => 32i8,
             TrustTier::Contraindicated => 96i8,
+            TrustTier::Incomplete => 127i8,
         }
     }
 }
@@ -202,6 +213,7 @@ impl From<&TrustTier> for i8 {
             TrustTier::Affirming => 2i8,
             TrustTier::Warning => 32i8,
             TrustTier::Contraindicated => 96i8,
+            TrustTier::Incomplete => 127i8,
         }
     }
 }
@@ -251,6 +263,21 @@ mod test {
 
         let res = TryInto::<TrustTier>::try_into("bad").err().unwrap();
         assert_eq!(res.to_string(), "invalid name: bad".to_string());
+    }
+
+    #[test]
+    fn incomplete() {
+        let tier = TrustTier::Incomplete;
+        assert_eq!(serde_json::to_string(&tier).unwrap(), "\"incomplete\"");
+
+        let mut buf: Vec<u8> = Vec::new();
+        into_writer(&tier, &mut buf).unwrap();
+        assert_eq!(buf, vec![0x18, 0x7f]);
+        assert_eq!(from_reader::<TrustTier, _>(buf.as_slice()).unwrap(), tier);
+
+        assert_eq!(TrustTier::try_from(127i8).unwrap(), tier);
+        assert_eq!(TrustTier::try_from("Incomplete").unwrap(), tier);
+        assert!(TrustTier::Contraindicated < tier);
     }
 
     #[test]
